@@ -1,0 +1,15 @@
+setup:
+  addons:
+    - plan: heroku-redis
+      as: REDIS
+      
+build:
+  docker:
+    web: Dockerfile
+
+run:
+  web: gunicorn app:server -b 0.0.0.0:${PORT}
+  worker: 
+    command: 
+      - celery -A celery_worker worker --loglevel=INFO --concurrency=2
+    image: web

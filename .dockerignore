@@ -1,0 +1,11 @@
+__pycache__/
+env/
+.vs/
+.env/
+.git/
+/pages/__pycache__
+.vs
+env
+.env
+.git
+__pycache__

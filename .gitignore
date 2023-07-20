@@ -1,0 +1,5 @@
+__pycache__/
+env/
+.vs
+.env
+pages/__pycache__/
