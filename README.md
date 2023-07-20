@@ -1,2 +1,4 @@
 # goloco
-A bioinformatics web application designed to enable genome-wide CRISPR loss-of-function inferences with compressed sgRNA subsets powered by information embedded in biological networks that exploit functional relationships between genes. 
+
+Goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. These lossy compression sets represent the most highly informative loss-of-function phenotypes, learned from robust compendia of genome-wide CRISPR/Cas9 knockout experimentation by the Broad Institute, and balance global accuracy with tunable information loss. Our machine learning models leverage cross-predictive and redudant features that highlight functionally related genes and self organize into growth regulatory networks. Information leveraged by highly-predictive key nodes, i.e. lossy subsets, can make previously insurmountable experiments possible because genome-scale portraits of growth regulation can be captures with tiny pools of hundreds of sgRNAs.  
+
