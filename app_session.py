@@ -26,8 +26,8 @@ class infer:
         self.gene_categories = pd.read_csv(gene_cats_dir)
         self.s3_client = boto3.client('s3')
         self.s3_bucket_name = 'ceres-infer'
-        self.s3 = boto3.resource('s3', aws_access_key_id='AKIAWOWWNKWBQ3GACTFT',
-                                  aws_secret_access_key='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',
+        self.s3 = boto3.resource('s3', os.environ['AWS_ACCESS_KEY_ID'],
+                                  aws_secret_access_key=['AWS_SECRET_ACCESS_KEY'],
                                   region_name='us-east-1')
         self.my_bucket = self.s3.Bucket(self.s3_bucket_name)
                  

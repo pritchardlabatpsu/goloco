@@ -65,8 +65,8 @@ launch_uid = uuid.uuid4()
 # AWS Bucket Information
 s3_client = boto3.client('s3')
 s3_bucket_name = 'ceres-infer'
-s3 = boto3.resource('s3', aws_access_key_id='AKIAWOWWNKWBQ3GACTFT',
-                          aws_secret_access_key='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',
+s3 = boto3.resource('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                          aws_secret_access_key=['AWS_SECRET_ACCESS_KEY'],
                           region_name='us-east-1')
 my_bucket = s3.Bucket(s3_bucket_name)
 
