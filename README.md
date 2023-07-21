@@ -25,7 +25,9 @@ gh repo clone pritchardlabatpsu/goloco
 If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
 
 ### Step 1: Install Redis for Docker:
-[Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests native to Python Dash with celery backend workers processing requests. Open Docker desktop, search and pull the image for 'redis:latest', or run the following command in a terminal:
+[Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests native to Python Dash with celery backend workers processing requests. 
+
+Open Docker desktop, search and pull the image for 'redis:latest', or run the following command in a terminal:
 
 ```bash
 docker pull redis
@@ -43,7 +45,17 @@ docker compose up
 This previous step may take a while.
 
 ### Step 3: Open goloco:
-Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Open any web browser and type '127.0.0.1:8080' or 'localhost:8080' to access the application. Your Docker desktop application will now have a fully encolsed container for the goloco app which can be stopped and restarted and any time.
+Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Open any web browser and navigate to the following address to access this application:
+
+```bash
+127.0.0.1:8080
+```
+or
+```bash
+localhost:8080
+```
+
+Your Docker desktop application will now have a fully contained version of the goloco app, which can be stopped and restarted at any time.
 
 
 ## Run with Python:
@@ -124,7 +136,16 @@ python app.py
 ```
 
 ### Step 5. Open goloco:
-goloco should now be operational and serviced over port 8080 on your local machine. Open any web browser and type '127.0.0.1:8080' or 'localhost:8080' to access the application. Note that the port can be changed in the app.py source code if necessary or desired. The application can be stopped by closing processes on each of the service terminals and restarted following Step 4.
+Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Note that the port can be changed in the app.py source code if necessary or desired. Open any web browser and navigate to the following address to access this application:
+
+```bash
+127.0.0.1:8080
+```
+or
+```bash
+localhost:8080
+```
+The application can be stopped by interrupting or closing the processes in each of the service terminals and can be restarted by following Step 4.
 
 ## Data:
 
