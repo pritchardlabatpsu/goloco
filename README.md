@@ -1,6 +1,9 @@
 # goloco
 
-goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. Our machine learning models, trained with robust compendia of genome-wide CRISPR knockout experiments, identify predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks [[1]](#1). Information leveraged by highly cross predictive nodes, i.e. lossy compressed subsets of 100-1000 genes, in these networks can make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation captured with tiny pools of hundreds of sgRNAs. With this tool we hope to make functional genomic inquiry more effiecient and scalable. Check out our previous [publication](https://www.nature.com/articles/s41467-022-28045-w) in Nature Communications describing our algorithms in more detail.
+goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets powered by lossy compression models. 
+
+## What is lossy compression (loco)?
+Trained with robust compendia of genome-wide CRISPR knockout experiments, our machine learning models identify cross predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks. These networks can be compressed to only 100-1000 highly cross predictive nodes that predict the remaining ~17000-17900 genes with tunable loss of information, demonstrating the feasibility of compressing sgRNA libraries for genome scale experiments. These lossy subsets make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation with tiny pools of hundreds of sgRNAs. We hope to make functional genomic inquiry more effiecient and scalable with this web application. Check out our previous [publication](https://www.nature.com/articles/s41467-022-28045-w) in Nature Communications describing our algorithms in more detail [[1]](#1).
 
 ## Options for usage:
 There are several options for using this application:
@@ -8,10 +11,10 @@ There are several options for using this application:
 2. [Run goloco locally using Docker](#run-with-docker) (**Recommended Local**)
 3. [Run goloco locally with Python](#run-with-python)
 
-## Use the Public Version:
+## Public Version:
 Using the public version of this application is recommended for all users and is specifically designed to make this tool broadly accessible to those with limited or no prior coding knowledge. The application is hosted on [http://goloco.herokuapp.com](http://goloco.herokuapp.com/).
 
-## Developing a Local goloco Application:
+## Local Development:
 Running this application on your local machine can be benefical to overcome CPU, memory, and storage limitations on the public server that limit genome-wide prediction runtimes and application responsiveness. If using either Docker or Python Dash to run this application locally, it is important to visit this manuals data section for instructions on how to download the core predictive models, store them locally, and modify the configuration variables to your local drives. This data step can be done immediately after cloning this repository for local development:
 
 ```bash
@@ -29,7 +32,7 @@ docker pull redis
 ```
 
 ### Step 2: Run Docker Compose:
-Prior to lauching this application, please see the data section for instructions on how to download the required models to your local hard drive and to modify application configurations and source code to access these files.
+Prior to lauching this application, please see the data section for instructions on downloading the core predictive models and modifying configuration variables in the source code.
 
 Clone this repository, navigate to the goloco directory that contains the Dockerfile and docker-compose.yml files, and run the following command in your terminal:
 
@@ -98,7 +101,7 @@ sudo systemctl enable redis-server.service
 ```
 
 ### Step 4. Launch goloco:
-Prior to lauching this application, please see the data section for instructions on how to download the required models to your local hard drive and to modify application configurations and source code to access these files.
+Prior to lauching this application, please see the data section for instructions on downloading the core predictive models and modifying configuration variables in the source code.
 
 This app uses three main services to operate--Redis, Celery, and Python Dash--to lauch these services open three terminals in the main goloco directory, activate the virtual environment in each, and run the following commands: 
 
