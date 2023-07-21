@@ -1,4 +1,4 @@
-FROM python:3.11
+FROM python:3.8
 
 RUN set -ex \
     && pip install --upgrade pip \
@@ -11,8 +11,8 @@ COPY . ./
 RUN pip install --no-cache-dir -r requirements.txt --use-pep517
 RUN pip install scikit-learn==0.22.1
 RUN git clone https://github.com/broadinstitute/chronos.git
-RUN python /app/chronos/setup.py install
-RUN unzip $(find /usr/local/lib/python3.11/site-packages -name '*.egg') -d /usr/local/lib/python3.11/site-packages
+RUN cd /app/chronos \
+    && pip install .
 
 #ENV PORT=8080
 

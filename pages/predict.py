@@ -73,7 +73,25 @@ inference_frame = html.Div([
                 dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 1: Submit a new job''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
                           dbc.CardBody([
                           html.Div([
-                                       html.P('''Upload a csv or excel file of L200 CERES scores for your experiment to the box below. Select the run inference button to run your inference:                 '''),
+                                        html.P('''Upload a csv or excel file of L200 CERES scores for your experiment to the box below. Select the run inference button to run your inference:                 '''),
+                                        dbc.Alert(
+                                                [
+                                                    html.Div([
+                                                    html.I(className="bi bi-info-circle-fill me-2"),
+                                                    html.Details([
+                                                    html.Br(),
+                                                    dbc.ListGroup(
+                                                        [dbc.ListGroupItem([html.B('feature (str): '), 'first column must list all the L200 genes in the following format example: "NRAS (4893) [CERES]"']),
+                                                         dbc.ListGroupItem([html.B('name exp 1 (int): '), 'all other columns can be named by cell-type or experiment name, row values under column should be chronos scores corresponding to feature column']),
+                                                         dbc.ListGroupItem([html.B('name exp 2 (int): '), 'all other columns can be named by cell-type or experiment name, row values under column should be chronos scores corresponding to feature column']),
+                                                            ]),], open=False),
+                                                    ],),
+                                                ],
+                                                color="info",
+                                                className="d-flex align-items-center",
+                                                style={'align-items': 'center'}
+                                            ),
+                                        
                                         dcc.Upload(
                                         id='upload-L200-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -107,6 +125,27 @@ inference_frame = html.Div([
                                dbc.CardBody([
                                html.Div([
                                        html.P('''Upload a csv or excel file of a previous prediction to the box below. Select the load prediction button below to visualize your previous prediction data:    '''),
+                                        dbc.Alert(
+                                                [
+                                                    html.Div([
+                                                    html.I(className="bi bi-info-circle-fill me-2"),
+                                                    html.Details([
+                                                    html.Br(),
+                                                    dbc.ListGroup(
+                                                        [dbc.ListGroupItem([html.B('gene (str): '), 'column with ~18000 gene names in format "NRAS"']),
+                                                         dbc.ListGroupItem([html.B('gene_category (str): '), 'either conditional, common essential, or common nonessential']),
+                                                         dbc.ListGroupItem([html.B('avg (int): '), 'average CERES score for gene']),
+                                                         dbc.ListGroupItem([html.B('std (int): '), 'standard deviation of CERES scores for gene']),
+                                                         dbc.ListGroupItem([html.B('name exp 1 (CERES Pred) (int): '), 'each experiment should have a column with ceres predictions']),
+                                                         dbc.ListGroupItem([html.B('name exp 1 (Z-Score) (int): '), 'each experiment should have a column with z-score predictions']),
+                                                            ]),], open=False),
+                                                    ],),
+                                                ],
+                                                color="info",
+                                                className="d-flex align-items-center",
+                                                style={'align-items': 'center'}
+                                            ),
+
                                         dcc.Upload(
                                         id='upload-df_pred-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -124,6 +163,7 @@ inference_frame = html.Div([
                                             },
                                             multiple=False
                                         ),
+
                                         dcc.Loading(id='file_upload_load', children = [html.Div(id='pred_upload_label', children=[html.Br()])], type='default'), #html.Div([html.Label(id='pred_upload_label', style={'color':'#548235'})])], type='default'
 
                                         html.Div([

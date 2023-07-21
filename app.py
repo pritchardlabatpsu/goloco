@@ -117,7 +117,7 @@ else:
     cache = diskcache.Cache()
     from celery import Celery
 
-    redis_url = 'redis://default:redispw@localhost:32768'
+    redis_url = 'redis://localhost:6379/0'
 
     celery_app = Celery(__name__, 
                     BROKER_URL=redis_url, 
