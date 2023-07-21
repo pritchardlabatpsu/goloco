@@ -1,6 +1,6 @@
 # goloco
 
-goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. Our machine learning models, trained with robust compendia of genome-wide CRISPR knockout experiments, identify predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks [[1]](#1). Information leveraged by highly cross predictive nodes, i.e. lossy compressed subsets of 100-1000 genes, in these networks can make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation captured with tiny pools of hundreds of sgRNAs. With this tool we hope to make functional genomic inquiry more effiecient and scalable.
+goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. Our machine learning models, trained with robust compendia of genome-wide CRISPR knockout experiments, identify predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks [[1]](#1). Information leveraged by highly cross predictive nodes, i.e. lossy compressed subsets of 100-1000 genes, in these networks can make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation captured with tiny pools of hundreds of sgRNAs. With this tool we hope to make functional genomic inquiry more effiecient and scalable. Check out our previous [publication](https://www.nature.com/articles/s41467-022-28045-w) in Nature Communications describing our algorithms in more detail.
 
 ## Options for usage:
 There are several options for using this application:
@@ -15,7 +15,7 @@ Using the public version of this application is recommended for all users and is
 Running this application on your local machine can be benefical to overcome CPU, memory, and storage limitations on the public server that limit genome-wide prediction runtimes and application responsiveness. If using either Docker or Python Dash to run this application locally, it is important to visit this manuals data section for instructions on how to download the core predictive models, store them locally, and modify the configuration variables to your local drives. This data step can be done immediately after cloning this repository for local development:
 
 ```bash
-git clone  
+gh repo clone pritchardlabatpsu/goloco
 ```
 
 ## Run with Docker:
