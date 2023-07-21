@@ -1,6 +1,6 @@
 # goloco
 
-goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. Our machine learning models, trained with robust compendia of genome-wide CRISPR knockout experiments, identify predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks. [[1]](#1). Information leveraged by highly cross predictive nodes, i.e. lossy compressed subsets of 100-1000 genes, in these networks can make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation captured with tiny pools of hundreds of sgRNAs. With this tool we hope to make functional genomic inquiry more effiecient and scalable.
+goloco is a bioinformatics web application designed to enable genome-wide CRISPR loss-of-function predictions with small scale experiments of 100-1000 sgRNA subsets. Our machine learning models, trained with robust compendia of genome-wide CRISPR knockout experiments, identify predictive features that capture functional relationships between related genes and they self organize into growth regulatory networks [[1]](#1). Information leveraged by highly cross predictive nodes, i.e. lossy compressed subsets of 100-1000 genes, in these networks can make previously insurmountable experiments possible by generating genome-scale portraits of growth regulation captured with tiny pools of hundreds of sgRNAs. With this tool we hope to make functional genomic inquiry more effiecient and scalable.
 
 ## Options for usage:
 There are several options for using this application:
@@ -8,17 +8,29 @@ There are several options for using this application:
 2. [Run goloco locally using Docker](#run-with-docker) (**Recommended Local**)
 3. [Run goloco locally with Python](#run-with-python)
 
+## Use the Public Version:
+Using the public version of this application is recommended for all users and is specifically designed to make this tool broadly accessible to those with limited or no prior coding knowledge. The application is hosted on [http://goloco.herokuapp.com](http://goloco.herokuapp.com/).
+
+## Developing a Local goloco Application:
+Running this application on your local machine can be benefical to overcome CPU, memory, and storage limitations on the public server that limit genome-wide prediction runtimes and application responsiveness. If using either Docker or Python Dash to run this application locally, it is important to visit this manuals data section for instructions on how to download the core predictive models, store them locally, and modify the configuration variables to your local drives. This data step can be done immediately after cloning this repository for local development:
+
+```bash
+git clone  
+```
+
 ## Run with Docker:
-Running this application on your local machine can be benefical to overcome CPU, memory, and storage limitations on the public server that pose limits to prediction runtimes and application responsiveness. If you wish to run goloco on your local machine, it is recommended to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
+If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
 
 ### Step 1: Install Redis for Docker:
-Open Docker desktop, search and pull the image for 'redis:latest', or run the following command in a terminal:
+[Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests native to Python Dash with celery backend workers processing requests. Open Docker desktop, search and pull the image for 'redis:latest', or run the following command in a terminal:
 
 ```bash
 docker pull redis
 ```
 
 ### Step 2: Run Docker Compose:
+Prior to lauching this application, please see the data section for instructions on how to download the required models to your local hard drive and to modify application configurations and source code to access these files.
+
 Clone this repository, navigate to the goloco directory that contains the Dockerfile and docker-compose.yml files, and run the following command in your terminal:
 
 ```bash
@@ -88,7 +100,7 @@ sudo systemctl enable redis-server.service
 ### Step 4. Launch goloco:
 Prior to lauching this application, please see the data section for instructions on how to download the required models to your local hard drive and to modify application configurations and source code to access these files.
 
-This app uses three main services to operate--Redis, Celery, and Python Dash. To lauch these services open three terminals in the main goloco directory, activate the virtual environment in each, and run the following commands: 
+This app uses three main services to operate--Redis, Celery, and Python Dash--to lauch these services open three terminals in the main goloco directory, activate the virtual environment in each, and run the following commands: 
 
 #### Terminal 1. Start the Redis Service:
 ```bash
