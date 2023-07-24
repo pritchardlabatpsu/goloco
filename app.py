@@ -37,7 +37,10 @@ import regex as re
 import networkx as nx
 from community import community_louvain
 import phate
+from dotenv import load_dotenv
 from dash_extensions.enrich import callback, DashProxy, Output, Input, State, ServersideOutput, html, dcc, ServersideOutputTransform, MultiplexerTransform, FileSystemStore
+
+load_dotenv()
 
 # Directories
 DepMap_DIRECTORY = './data'
@@ -66,7 +69,7 @@ launch_uid = uuid.uuid4()
 s3_client = boto3.client('s3')
 s3_bucket_name = 'ceres-infer'
 s3 = boto3.resource('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                          aws_secret_access_key=['AWS_SECRET_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
                           region_name='us-east-1')
 my_bucket = s3.Bucket(s3_bucket_name)
 
@@ -134,7 +137,7 @@ else:
 app = DashProxy(__name__, use_pages=True, suppress_callback_exceptions=True,
                 background_callback_manager=background_callback_manager,
                 external_stylesheets=[dbc.themes.BOOTSTRAP],
-                meta_tags=[{'name': 'viewport', 'content': 'width=device-width, initial-scale=1'}], 
+                meta_tags=[{'name': 'viewport', 'content': 'width=2000px, initial-scale=0.8'}], 
                 transforms=[ServersideOutputTransform(backend=my_backend), MultiplexerTransform()])
 
 # define server for running app
@@ -170,8 +173,8 @@ app.layout = html.Div([
     brand_href="/",
     color="primary",
     dark=True,
-    style = {'padding-left': '100px',
-             'padding-right': '100px'}
+    style = {'padding-left': '50px',
+             'padding-right': '50px'}
     ),
 
     dash.page_container,
@@ -1412,6 +1415,83 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
             df_pred = df_pred.round(3)
             return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True)
 
+@app.callback(Output('pick-community-1', 'options'),
+          Output('pick-community-2', 'options'),
+          Output('pick-community-3', 'options'),
+          Input('dummy_div_genes', 'children'),)
+def update_dropdown(aux):
+
+    df_clusters = pd.read_csv('./data/feat_summary_varExp_filtered_class.csv')
+    landmark_genes = sorted(list(set(df_clusters['feature'].tolist())))
+    landmark_genes.insert(0, 'ALL')
+
+    return landmark_genes, landmark_genes, landmark_genes
+
+@app.callback(Output('gene-list-dropdown_1', 'options'),
+              Output('gene-list-dropdown_2', 'options'),
+              Input('pick-community-1', 'value'),
+              prevent_initial_call=True)
+def update_gene_list_1(community):
+    if community is None:
+        return dash.no_update
+    else:
+        if community == 'ALL':
+            with open(DepMap19Q4_GENES_PICKLE, 'rb') as f:
+                gene_list = pickle.load(f)
+            return gene_list, gene_list
+        else:
+            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            
+            clust2 = clust.copy()
+            for i,j in G.edges(clust):
+                clust2.append(j)
+            clust2 = list(set(clust2))
+
+            return clust2, clust2
+
+@app.callback(Output('gene-list-dropdown_3', 'options'),
+              Output('gene-list-dropdown_4', 'options'),
+              Input('pick-community-2', 'value'),
+              prevent_initial_call=True)
+def update_gene_list_1(community):
+    if community is None:
+        return dash.no_update
+    else:
+        if community == 'ALL':
+            with open(DepMap19Q4_GENES_PICKLE, 'rb') as f:
+                gene_list = pickle.load(f)
+            return gene_list, gene_list
+        else:
+            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            
+            clust2 = clust.copy()
+            for i,j in G.edges(clust):
+                clust2.append(j)
+            clust2 = list(set(clust2))
+
+            return clust2, clust2
+
+@app.callback(Output('multi-gene-list-dropdown', 'options'),
+              Input('pick-community-3', 'value'),
+              prevent_initial_call=True)
+def update_gene_list_1(community):
+    if community is None:
+        return dash.no_update
+    else:
+        if community == 'ALL':
+            with open(DepMap19Q4_GENES_PICKLE, 'rb') as f:
+                gene_list = pickle.load(f)
+            return gene_list
+        else:
+            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            
+            clust2 = clust.copy()
+            for i,j in G.edges(clust):
+                clust2.append(j)
+            clust2 = list(set(clust2))
+
+            return clust2
+
 @app.callback(Output('single_dist_graph_1','figure'),
               Input('gene-list-dropdown_1', 'value'),
               State('df_pred-store', 'data'),
@@ -2113,8 +2193,6 @@ def create_cluster_graph(landmark, layout):
             color_by_dict = dict(zip(color_bys, color_by_list))
 
         for clust in unique:
-            logging.warning(len(cluster_cell_lines))
-            logging.warning([clusters==clust][0].shape)
             fig.add_trace(go.Scatter(x=[row[0] for row in Y_phate_tsne[clusters==clust]], 
                                     y=[row[1] for row in Y_phate_tsne[clusters==clust]],
                                     mode='markers',

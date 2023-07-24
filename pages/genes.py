@@ -9,10 +9,6 @@ import pandas as pd
 
 DepMap19Q4_GENES_PICKLE = './data/19q4_genes.pkl'
 
-global gene_list
-with open(DepMap19Q4_GENES_PICKLE, 'rb') as f:
-    gene_list = pickle.load(f)
-
 dash.register_page(__name__)
 
 SIDEBAR_STYLE = {
@@ -29,10 +25,14 @@ layout = dbc.Container([
         html.H4('Single Gene Comparisons', className="display-5"),
         html.P('Select a gene below for each plot to visualize the predicted CERES score for all experiments in the backdrop of the distribution of CERES scores for that gene in all other cell lines'),
         dbc.Row([dbc.Col(
-            dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_1', options = gene_list, searchable = True, placeholder='select a gene')], type='default')
+                        dcc.Loading(id='louv_load_1', children=[dcc.Dropdown(id='pick-community-1', searchable = True, placeholder='select a louvain community')], type='default'), 
+                        width=6)]),
+        html.Br(),
+        dbc.Row([dbc.Col(
+            dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_1', searchable = True, placeholder='select a gene')], type='default')
             ),
                  dbc.Col(
-                     dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_2', options = gene_list,searchable = True, placeholder='select a gene')], type='default')
+                     dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_2', searchable = True, placeholder='select a gene')], type='default')
                      ),
                  ]),
         html.Br(),
@@ -55,11 +55,17 @@ layout = dbc.Container([
     dbc.Row([dbc.Col(html.Div([
         html.H4('Single Pairwise Genes Regression Analysis', className="display-5"),
         html.P('Select two genes below to visualize the predicted CERES scores against one another and amongst all other cell lines'),
+                
         dbc.Row([dbc.Col(
-            dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_3', options = gene_list, searchable = True, placeholder='select first gene')], type='default')
+            dcc.Loading(id='louv_load_1', children=[dcc.Dropdown(id='pick-community-2', searchable = True, placeholder='select a louvain community')], type='default'), 
+        width=6)]),
+
+        html.Br(),
+        dbc.Row([dbc.Col(
+            dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_3', searchable = True, placeholder='select first gene')], type='default')
             ),
                  dbc.Col(
-                     dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_4', options = gene_list, searchable = True, placeholder='select second gene')], type='default')
+                     dcc.Loading(id='gene_load', children=[dcc.Dropdown(id='gene-list-dropdown_4', searchable = True, placeholder='select second gene')], type='default')
                      ),
                  ]),
         html.Br(),
@@ -104,7 +110,13 @@ layout = dbc.Container([
                 html.Div([
                     html.H4('Multiple Pairwise Genes Regression Analysis', className="display-5"),
                     html.P('Select between 2 to 10 genes in the dropdown below to visualize the pairwise comparisons of all genes across all cell lines including your predicted CERES scores'),
-                    dbc.Row(dbc.Col(dcc.Dropdown(id='multi-gene-list-dropdown', options = gene_list, searchable = True, placeholder='select second gene', multi = True))),
+                    
+                    dbc.Row([dbc.Col(
+                        dcc.Loading(id='louv_load_1', children=[dcc.Dropdown(id='pick-community-3', searchable = True, placeholder='select a louvain community')], type='default'), 
+                    width=6)]),
+
+                    html.Br(),
+                    dbc.Row(dbc.Col(dcc.Dropdown(id='multi-gene-list-dropdown', searchable = True, placeholder='select second gene', multi = True))),
                     html.Br(),
                     dbc.Row([dbc.Col(), dbc.Col(html.Div([
                         html.P(children = '', id='multi_gene_graph_name', style={'textAlign': 'center'}),
@@ -115,21 +127,26 @@ layout = dbc.Container([
     html.Div(id='dummy_div_genes'),],
 
     style={
-        "transform": "scale(0.85)",
+        "transform": "scale(1)",
         "transform-origin": "top",
     },
              ),
 
 ], fluid = True, style={'className': 'small'})
 
-#@callback(Output('gene-list-dropdown_1', 'options'),
-#          Output('gene-list-dropdown_2', 'options'),
-#          Output('gene-list-dropdown_3', 'options'),
-#          Output('gene-list-dropdown_4', 'options'),
-#          State('gene_list', 'data'),
-#          Input('dummy_div_genes', 'children'),)
-#def update_dropdown(genes, aux):
-#    if genes is None:
-#        raise PreventUpdate
-#    else:
-#        return genes, genes, genes, genes
+'''@callback(Output('gene-list-dropdown_1', 'options'),
+          Output('gene-list-dropdown_2', 'options'),
+          Output('gene-list-dropdown_3', 'options'),
+          Output('gene-list-dropdown_4', 'options'),
+          Output('pick-community-1', 'options'),
+          Output('pick-community-2', 'options'),
+          Output('pick-community-3', 'options'),
+          Input('dummy_div_genes', 'children'),)
+def update_dropdown(aux):
+    with open(DepMap19Q4_GENES_PICKLE, 'rb') as f:
+        gene_list = pickle.load(f)
+
+    df_clusters = pd.read_csv('./data/feat_summary_varExp_filtered_class.csv')
+    landmark_genes = sorted(list(set(df_clusters['feature'].tolist())))
+    
+    return gene_list, gene_list, gene_list, gene_list, landmark_genes, landmark_genes, landmark_genes'''

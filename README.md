@@ -35,7 +35,7 @@ The cloned repository will have the following file structure:
 ├── pages                  # contains source code for each unique webpage
     ├──                            # home.py, predict.py, overview.py, genes.py, zscore.py, clusters.py
 ├── requirements.txt       # PYTHON DEV USE: package specifications.. execute with "pip install -r requirements.txt" in venv
-├── app.py                 # PYTHON DEV USE: main executable application server code.. execute with "python app.py"
+├── app.py                 # PYTHON DEV USE: main executable application server code.. execute with "python app.py or gunicorn"
 ├── celery_worker.py       # PYTHON DEV USE: executable background celery workers.. execute with "celery -A celery_worker worker"
 ├── app_session.py         # main class and asssociated functions for performing genome-wide prediction
 ├── Dockerfile             # DOCKER DEV USE: executable to create single Docker image.. execute with "docker run"

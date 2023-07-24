@@ -474,7 +474,7 @@ layout = dbc.Container([
 )
 def return_l100(n_clicks):
     return dcc.send_file(
-        "./depmap_files/L100_landmark_genes.csv"
+        "./data/L100_landmark_genes.csv"
         )
 
 @callback(
@@ -484,7 +484,7 @@ def return_l100(n_clicks):
 )
 def return_l200(n_clicks):
     return dcc.send_file(
-        "./depmap_files/L200_landmark_genes.csv"
+        "./data/L200_landmark_genes.csv"
         )
 
 @callback(
@@ -494,7 +494,7 @@ def return_l200(n_clicks):
 )
 def return_l300(n_clicks):
     return dcc.send_file(
-        "./depmap_files/L300_landmark_genes.csv"
+        "./data/L300_landmark_genes.csv"
         )
 
 #@callback(Output('tabs-content-inline', 'children'),
