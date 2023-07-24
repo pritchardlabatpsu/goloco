@@ -91,7 +91,9 @@ inference_frame = html.Div([
                                                 className="d-flex align-items-center",
                                                 style={'align-items': 'center'}
                                             ),
-                                        
+                                        html.Div([html.A('Download Example', id='example_features_link', href="#")], style = {'textAlign' : 'center'}),
+                                        dcc.Download(id="example_features_data"),
+                                        html.Br(),
                                         dcc.Upload(
                                         id='upload-L200-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -145,7 +147,9 @@ inference_frame = html.Div([
                                                 className="d-flex align-items-center",
                                                 style={'align-items': 'center'}
                                             ),
-
+                                        html.Div([html.A('Download Example', id='example_prediction_link', href="#")], style = {'textAlign' : 'center'}),
+                                        dcc.Download(id="example_prediction_data"),
+                                        html.Br(),
                                         dcc.Upload(
                                         id='upload-df_pred-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -248,6 +252,9 @@ gene_convert = html.Div([
                                                 className="d-flex align-items-center",
                                                 style={'align-items': 'center'}
                                             ),
+                                        html.Div([html.A('Download Example', id='example_readcounts_link', href="#")], style = {'textAlign' : 'center'}),
+                                        dcc.Download(id="example_readcounts_data"),
+                                        html.Br(),
                                         dcc.Upload(
                                         id='upload-reads-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -293,6 +300,9 @@ gene_convert = html.Div([
                                                 className="d-flex align-items-center",
                                                 style={'align-items': 'center'}
                                             ),
+                                        html.Div([html.A('Download Example', id='example_sequencemap_link', href="#")], style = {'textAlign' : 'center'}),
+                                        dcc.Download(id="example_sequencemap_data"),
+                                        html.Br(),
                                         dcc.Upload(
                                         id='upload-sequence-map-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -339,6 +349,9 @@ gene_convert = html.Div([
                                                 className="d-flex align-items-center",
                                                 style={'align-items': 'center'}
                                             ),
+                                        html.Div([html.A('Download Example', id='example_guidemap_link', href="#")], style = {'textAlign' : 'center'}),
+                                        dcc.Download(id="example_guidemap_data"),
+                                        html.Br(),    
                                         dcc.Upload(
                                         id='upload-guide-map-data',
                                         children=html.Div(['Drag and Drop or ',
@@ -496,6 +509,57 @@ def return_l300(n_clicks):
     return dcc.send_file(
         "./data/L300_landmark_genes.csv"
         )
+
+@callback(
+    Output("example_features_data", "data"),
+    Input("example_features_link", "n_clicks"),
+    prevent_initial_call=True
+)
+def return_example_prediction(n_clicks):
+    return dcc.send_file(
+        "./data/PC9SKMELCOLO_L200_CERES_Features.csv"
+        )
+
+@callback(
+    Output("example_prediction_data", "data"),
+    Input("example_prediction_link", "n_clicks"),
+    prevent_initial_call=True
+)
+def return_example_prediction(n_clicks):
+    return dcc.send_file(
+        "./data/PC9SKMELCOLO_L200_CERES_Features_prediction.csv"
+        )
+
+@callback(
+    Output("example_readcounts_data", "data"),
+    Input("example_readcounts_link", "n_clicks"),
+    prevent_initial_call=True
+)
+def return_example_prediction(n_clicks):
+    return dcc.send_file(
+        "./data/sgrna_raw_reads.csv"
+        )
+
+@callback(
+    Output("example_sequencemap_data", "data"),
+    Input("example_sequencemap_link", "n_clicks"),
+    prevent_initial_call=True
+)
+def return_example_prediction(n_clicks):
+    return dcc.send_file(
+        "./data/sgrna_mappings.csv"
+        )
+
+@callback(
+    Output("example_guidemap_data", "data"),
+    Input("example_guidemap_link", "n_clicks"),
+    prevent_initial_call=True
+)
+def return_example_prediction(n_clicks):
+    return dcc.send_file(
+        "./data/sgrna_gene_reference.csv"
+        )
+
 
 #@callback(Output('tabs-content-inline', 'children'),
 #          Input('tabs-styled-with-inline', 'value'),
