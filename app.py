@@ -247,7 +247,7 @@ app.layout = html.Div([
     ),
 ])
 
-#-----------------------------------------FUNCTIONS---------------------------------------------------------------
+#-----------------------------------------GENERAL FUNCTIONS---------------------------------------------------------------
 
 def save_file(name, content, directory):
     """Decode and store a file uploaded with Plotly Dash."""
@@ -291,9 +291,31 @@ def myround(x, base=5):
 def generate_uniprot_url(gene):
     return f'https://www.uniprot.org/uniprot/?query={gene}'
 
-def create_gene_link(gene):
-    url = generate_uniprot_url(gene)
-    return html.A(gene, href=url, target='_blank')
+def create_gene_link(gene, website, name):
+    if website == 'uniprot':
+        url = generate_uniprot_url(gene)
+    elif website == 'depmap':
+        url = generate_depmap_url(gene)
+    elif website == 'tumor_portal':
+        url = generate_tumor_portal_url(gene)
+    elif website == 'ncbi':
+        url = generate_ncbi_url(gene)
+
+    if name == 'gene':
+        text = gene
+    else:
+        text = name
+    
+    return html.A(text, href=url, target='_blank')
+
+def generate_depmap_url(gene):
+    return f'https://depmap.org/portal/gene/{gene}?tab=overview'
+
+def generate_tumor_portal_url(gene):
+    return f'http://www.tumorportal.org/view?geneSymbol={gene}'
+
+def generate_ncbi_url(gene):
+    return f'https://www.ncbi.nlm.nih.gov/gene/?term={gene}'
 
 def render_link(value):
     return dcc.Link(value, href='https://www.uniprot.org/uniprot/'+value)
@@ -464,6 +486,7 @@ def toggle_modal(n1, n2, is_open):
         return not is_open
     return is_open
 
+#---------------------------------------------------------------PREDICT PAGE CALLBACKS-------------------------------------------------------
 
 @app.callback(
     Output('L200-data-store', 'data'),
@@ -1081,6 +1104,8 @@ def update_table(n_clicks, pred_data, filename):
     filename = filename + '_prediction.csv'
     return dcc.send_data_frame(df_pred.to_csv, filename)
 
+#---------------------------------------------------------- OVERVIEW PAGE CALLBACKS---------------------------------------------------------
+
 @app.callback(Output('output-inference-table', 'children'),
               Input('choose_experiment_1', 'value'),
               State('df_pred-store', 'data'),
@@ -1389,7 +1414,7 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
             df_pred = df_pred[df_pred.index.isin(point_numbers)]
             columns = ['gene', experiment + ' (CERES Pred)', experiment + ' (Z-Score)']
             df_pred = df_pred[columns]
-            df_pred['gene'] = df_pred['gene'].apply(lambda x: create_gene_link(x))
+            df_pred['gene'] = df_pred['gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
             df_pred = df_pred.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
             df_pred = df_pred.round(3)
 
@@ -1410,10 +1435,12 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
             df_pred = df_pred[df_pred.index.isin(point_numbers)]
             columns = ['gene', experiment + ' (CERES Pred)', experiment + ' (Z-Score)']
             df_pred = df_pred[columns]
-            df_pred['gene'] = df_pred['gene'].apply(lambda x: create_gene_link(x))
+            df_pred['gene'] = df_pred['gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
             df_pred = df_pred.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
             df_pred = df_pred.round(3)
             return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True)
+
+#-----------------------------------------------------------GENES PAGE CALLBACKS------------------------------------------------------------------------------
 
 @app.callback(Output('pick-community-1', 'options'),
           Output('pick-community-2', 'options'),
@@ -1589,6 +1616,38 @@ def run_inference(gene2visualize, pred_data, experiments):
     legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
     margin=dict(t=50, b=80))
     return fig
+
+@app.callback(Output('depmap_link_1', 'children'),
+              Output('uniprot_link_1', 'children'),
+              Output('tumor_portal_link_1', 'children'),
+              Output('ncbi_link_1', 'children'),
+              Input('gene-list-dropdown_1', 'value'),
+              )
+def update_gene_1_links(gene):
+    if gene is None:
+        return dash.no_update
+    else:
+        depmap_link = create_gene_link(gene, 'depmap', 'DepMap: ' + str(gene))
+        uniprot_link = create_gene_link(gene, 'uniprot', 'UniProt: ' + str(gene))
+        tumor_portal_link = create_gene_link(gene, 'tumor_portal', 'Tumor Portal: ' + str(gene))
+        ncbi_link = create_gene_link(gene, 'ncbi', 'NCBI: ' + str(gene))
+        return [depmap_link], [uniprot_link], [tumor_portal_link], [ncbi_link]
+    
+@app.callback(Output('depmap_link_2', 'children'),
+              Output('uniprot_link_2', 'children'),
+              Output('tumor_portal_link_2', 'children'),
+              Output('ncbi_link_2', 'children'),
+              Input('gene-list-dropdown_2', 'value'),
+              )
+def update_gene_1_links(gene):
+    if gene is None:
+        return dash.no_update
+    else:
+        depmap_link = create_gene_link(gene, 'depmap', 'DepMap: ' + str(gene))
+        uniprot_link = create_gene_link(gene, 'uniprot', 'UniProt: ' + str(gene))
+        tumor_portal_link = create_gene_link(gene, 'tumor_portal', 'Tumor Portal: ' + str(gene))
+        ncbi_link = create_gene_link(gene, 'ncbi', 'NCBI: ' + str(gene))
+        return [depmap_link], [uniprot_link], [tumor_portal_link], [ncbi_link]
 
 @app.callback(Output('pie_chart_graph', 'figure'),
               Input('pie_chart_slider', 'value'),
@@ -2030,7 +2089,7 @@ def create_network_graph_1(feature, choice, cell_line, experiment, pred_data, la
             logging.warning(sig_genes)
             subtitle = cell_line
 
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x))
+            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
 
         elif choice == 'experiment':
 
@@ -2047,7 +2106,7 @@ def create_network_graph_1(feature, choice, cell_line, experiment, pred_data, la
             logging.warning(sig_genes)
             subtitle = experiment + ' (CERES Prediction)'
 
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x))
+            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
 
         subgraph_2 = subgraph.subgraph(sig_genes)
 
@@ -2289,7 +2348,7 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
             df_return = df_return.rename(columns={cell_line: 'CERES Score'})
             df_return = df_return.round(3)
 
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x))
+            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
 
         elif choice == 'experiment':
 
@@ -2302,7 +2361,7 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
             df_return = df_return.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
             df_return = df_return.round(3)
 
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x))
+            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
         
         return dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True)
 

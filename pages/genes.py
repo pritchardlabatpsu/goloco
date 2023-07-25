@@ -42,13 +42,63 @@ layout = dbc.Container([
                         dcc.Graph(id='single_dist_graph_1'),],
                              ), width=6
             ),
+            
                  dbc.Col(
                      html.Div([
                         html.P(children = '', id='single_dist_graph_2_name', style={'textAlign': 'center'}),
                         dcc.Graph(id='single_dist_graph_2'),],
                              ), width=6
                      ),]),
-        ], style=SIDEBAR_STYLE))]),
+        html.Br(),
+        dbc.Row([dbc.Col(
+            html.Div([
+                dbc.Row([dbc.Col(width=1), dbc.Col(
+                    html.Div(children = [], id = 'depmap_link_1', style={'textAlign': 'center'})
+                
+                ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'uniprot_link_1', style={'textAlign': 'center'})
+
+                        ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'tumor_portal_link_1', style={'textAlign': 'center'})
+
+                        ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'ncbi_link_1', style={'textAlign': 'center'})
+
+                        ), dbc.Col(width=1),
+                ])
+                
+
+            ])
+        ),
+                dbc.Col(
+                    html.Div([
+                    dbc.Row([dbc.Col(width=1), dbc.Col(
+                        html.Div(children = [], id = 'depmap_link_2', style={'textAlign': 'center'})
+                
+                        ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'uniprot_link_2', style={'textAlign': 'center'})
+
+                        ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'tumor_portal_link_2', style={'textAlign': 'center'})
+
+                        ),
+                        dbc.Col(
+                            html.Div(children = [], id = 'ncbi_link_2', style={'textAlign': 'center'})
+
+                        ), dbc.Col(width=1),
+                ])
+
+                    ])
+                )
+        ])
+
+        ], style=SIDEBAR_STYLE)
+        )]),
 
     html.Br(),
 
