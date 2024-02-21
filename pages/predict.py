@@ -19,10 +19,6 @@ INFERENCE_STYLE = {
     'borderRadius': '1px',
 }
 
-INFERENCE_STYLE_3 = {
-    "color": "#f8f9fa",
-}
-
 INFERENCE_STYLE_2 = {
     "padding": "1rem 1rem",
     "background-color": "#F6F8FC",
@@ -35,8 +31,7 @@ tab_style = {
     'borderBottom': '1px solid #d6d6d6',
     'padding': '6px',
     'fontSize': '20px',
-    'fontWeight': 'bold',
-    'font-family': 'Roboto, sans-serif',
+    'font-family': "Helvetica",
     'width': '20%',
     'borderWidth': '1px',
     'borderStyle': 'solid',
@@ -48,9 +43,8 @@ tab_selected_style = {
     'borderBottom': '1px solid #d6d6d6',
     'backgroundColor': '#0f8de5',  #'#119DFF'
     'color': 'white',
-    'font-family': 'Roboto, sans-serif',
+    'font-family': 'Helvetica',
     'fontSize': '20px',
-    'fontWeight': 'bold',
     'padding': '6px',
     'width': '20%',
     'borderWidth': '1px',
@@ -62,7 +56,8 @@ inference_frame = html.Div([
 
             html.P('''Use this tool to generate genome-wide loss-of-function predictions and data visualizations. Use option 1 to upload an file containing L200 CERES scores
             across your cell-line experiments, use option 2 to upload a csv of a prediction that was performed previously with option 1, or use option 3 to load a sample prediction
-            if you are interested in testing the visualizations and predictions that this tool will generate.'''),
+            if you are interested in testing the visualizations and predictions that this tool will generate.''', 
+            style={'font-size': '1.2rem'}),
 
             html.Br(),
 
@@ -70,10 +65,11 @@ inference_frame = html.Div([
 
                 dbc.CardGroup([
 
-                dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 1: Submit a new job''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
+                dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 1: Submit a new job''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'})),
                           dbc.CardBody([
                           html.Div([
-                                        html.P('''Upload a csv or excel file of L200 CERES scores for your experiment to the box below. Select the run inference button to run your inference:                 '''),
+                                        html.P('''Upload a csv or excel file of L200 CERES scores for your experiment to the box below. Select the run inference button to run your inference:                 ''', 
+                                        style={'font-size': '1.1rem'}),
                                         dbc.Alert(
                                                 [
                                                     html.Div([
@@ -97,7 +93,7 @@ inference_frame = html.Div([
                                         dcc.Upload(
                                         id='upload-L200-data',
                                         children=html.Div(['Drag and Drop or ',
-                                                    html.A('Select L200 File')]),
+                                                    html.B('Select L200 File')]),
                                                 style={
                                                     'width': '100%',
                                                     'height': '40px',
@@ -123,10 +119,11 @@ inference_frame = html.Div([
                                                     ),], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'}),
                                        ])])], style=INFERENCE_STYLE_2, outline=True),
 
-                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 2: Upload a previous prediction''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
+                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 2: Upload a previous prediction''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'})),
                                dbc.CardBody([
                                html.Div([
-                                       html.P('''Upload a csv or excel file of a previous prediction to the box below. Select the load prediction button below to visualize your previous prediction data:    '''),
+                                       html.P('''Upload a csv or excel file of a previous prediction to the box below. Select the load prediction button below to visualize your previous prediction data:    ''', 
+                                        style={'font-size': '1.1rem'}),
                                         dbc.Alert(
                                                 [
                                                     html.Div([
@@ -153,7 +150,7 @@ inference_frame = html.Div([
                                         dcc.Upload(
                                         id='upload-df_pred-data',
                                         children=html.Div(['Drag and Drop or ',
-                                                html.A('Select Prediction File')]),
+                                                html.B('Select Prediction File')]),
                                             style={
                                                 'width': '100%',
                                                 'height': '40px',
@@ -180,10 +177,11 @@ inference_frame = html.Div([
 
                                        ])])], style=INFERENCE_STYLE_2, outline=True),
 
-                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 3: Run a sample visualization''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'}),),
+                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### Option 3: Run a sample visualization''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'}),),
                                dbc.CardBody([
                                html.Div([
-                                       html.P('''Select the load sample button below to load visualizations of a sample prediction preloaded to our servers:                                                  '''),
+                                       html.P('''Select the load sample button below to load visualizations of a sample prediction preloaded to our servers:                                                  ''',
+                                       style={'font-size': '1.1rem'}),
                                        html.Br(),
                                        html.Div([
                                             dbc.Button('Load Sample',
@@ -222,7 +220,7 @@ gene_convert = html.Div([
                 Broad Institute, requires at least 3 dataframes including a matrix of raw readcounts, a sequence 
                 mapping, and an sgRNA guide mapping. Optionally, gene-level copy number calls can be submitted or 
                 selected from the DepMap data to correct gene effect scores. Submit your data below in the correct 
-                formats to convert to CHRONOS scores:'''),
+                formats to convert to CHRONOS scores:''', style={'font-size': '1.2rem'}),
 
                 html.Br(),
 
@@ -231,10 +229,10 @@ gene_convert = html.Div([
                 dbc.CardGroup([
 
                 dbc.Card([dbc.CardHeader(html.Div([
-                          dcc.Markdown('''###### 1) Readcounts Dataframe: ''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
+                          dcc.Markdown('''###### 1) Readcounts Dataframe: ''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'})),
                           dbc.CardBody([
                           html.Div([
-                                       html.P("Upload a matrix as csv mapping count values to sgRNA sequences and sequence IDs with the following formats listed in the details below." , style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'}),
+                                       html.P("Upload a matrix as csv mapping count values to sgRNA sequences and sequence IDs with the following formats listed in the details below." , style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'}),
                                        dbc.Alert(
                                                 [
                                                     html.Div([
@@ -277,10 +275,10 @@ gene_convert = html.Div([
 
                                        ])])], style=INFERENCE_STYLE_2, outline=True),
 
-                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### 2) Sequence Map Dataframe''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
+                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### 2) Sequence Map Dataframe''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'})),
                           dbc.CardBody([
                           html.Div([
-                                       html.P("Upload a dataframe, as csv, mapping sequence IDs to cell lines, pDNA batches, and timepoints with the following four columns and precise headers as listed in the details below.", style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'}),
+                                       html.P("Upload a dataframe, as csv, mapping sequence IDs to cell lines, pDNA batches, and timepoints with the following four columns and precise headers as listed in the details below.", style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'}),
                                        dbc.Alert(
                                                 [
                                                     html.Div([
@@ -328,10 +326,10 @@ gene_convert = html.Div([
 
                                        ])])], style=INFERENCE_STYLE_2, outline=True),
 
-                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### 3) Guide Map Dataframe''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'})),
+                     dbc.Card([dbc.CardHeader(html.Div([dcc.Markdown('''###### 3) Guide Map Dataframe''')], style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'})),
                           dbc.CardBody([
                           html.Div([
-                                       html.P("Upload a dataframe mapping sgRNA sequences to genes as a csv with at least the two columns with precise headers as listed in the details below.", style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center'}),
+                                       html.P("Upload a dataframe mapping sgRNA sequences to genes as a csv with at least the two columns with precise headers as listed in the details below.", style={'display': 'flex', 'align-items': 'center', 'justify-content': 'center', 'font-size': '1.1rem'}),
                                        dbc.Alert(
                                                 [
                                                     html.Div([
@@ -406,9 +404,17 @@ layout = dbc.Container([
     html.Div([
     html.Br(),
 
+    dcc.Tabs(id="tabs-styled-with-inline", value='infer-tab', children = [
+        dcc.Tab(label='''Submit Inference''', value='infer-tab', style=tab_style, selected_style=tab_selected_style, children=inference_frame),
+        dcc.Tab(label='''Gene Effect Calculator''', value='convert-tab', style=tab_style, selected_style=tab_selected_style, children=gene_convert),
+    ]),
+
+    html.Br(),
+
     dbc.Row([dbc.Col(html.Div([
         dcc.Markdown('''#### Download Lossy Subsets'''),
-        html.P("L100, L200, and L300 are compressed subsets of genes consisting of 100, 200, and 300 genes, respectively, which tunably predict thousands of other CRISPR gene effects. Genome-wide loss-of-function predictions can be made by measuring the gene effect of only these compressed subsets. You will find downloable links to the L100, L200, and L300 gene subsets below:"),
+        html.P("L100, L200, and L300 are compressed subsets of genes consisting of 100, 200, and 300 genes, respectively, which tunably predict thousands of other CRISPR gene effects. Genome-wide loss-of-function predictions can be made by measuring the gene effect of only these compressed subsets. You will find downloable links to the L100, L200, and L300 gene subsets below:", 
+        style={'font-size': '1.2rem'}),
         html.A('L100_landmark_genes.csv', id='l100_download_link', href="#"),
         dcc.Download(id="l100_download_data"),
         html.Br(),
@@ -419,16 +425,6 @@ layout = dbc.Container([
         dcc.Download(id="l300_download_data"),
         html.Br(),],style=SIDEBAR_STYLE),),
              ]),
-        
-        html.Br(),
-
-#    dbc.Row([dbc.Col(
-        dcc.Tabs(id="tabs-styled-with-inline", value='infer-tab', children = [
-            dcc.Tab(label='''Submit Inference''', value='infer-tab', style=tab_style, selected_style=tab_selected_style, children=inference_frame),
-            dcc.Tab(label='''Gene Effect Calculator''', value='convert-tab', style=tab_style, selected_style=tab_selected_style, children=gene_convert),
-        ]),
-
-    #html.Div(id='tabs-content-inline', children = inference_frame),
     
     dbc.Modal(
         [
@@ -559,13 +555,3 @@ def return_example_prediction(n_clicks):
     return dcc.send_file(
         "./data/sgrna_gene_reference.csv"
         )
-
-
-#@callback(Output('tabs-content-inline', 'children'),
-#          Input('tabs-styled-with-inline', 'value'),
-#          prevent_initial_call=True)
-#def render_content(tab):
-##    if tab == 'infer-tab':
- #       return inference_frame
- #   elif tab == 'convert-tab':
- #       return gene_convert

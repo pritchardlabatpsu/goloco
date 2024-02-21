@@ -8,6 +8,7 @@ import pandas as pd
 import pickle
 import numpy as np
 import scipy.stats as stats
+from scipy.stats import pearsonr, norm
 import plotly.express as px
 import plotly.graph_objs as go
 import plotly.figure_factory as ff
@@ -19,14 +20,18 @@ import base64
 import dash
 import dash_uploader as du
 from dash import DiskcacheManager, CeleryManager, dash_table, ctx
-from dash.dash_table.Format import Format
+from dash.dash_table.Format import Format, Scheme
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from app_session import infer
 import time
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from sklearn.linear_model import LinearRegression
+import dash_cytoscape as cyto
+import math
+import requests
 import random
 from itertools import cycle
 from collections import Counter
@@ -38,6 +43,7 @@ import networkx as nx
 from community import community_louvain
 import phate
 from dotenv import load_dotenv
+from bisect import bisect
 from dash_extensions.enrich import callback, DashProxy, Output, Input, State, ServersideOutput, html, dcc, ServersideOutputTransform, MultiplexerTransform, FileSystemStore
 
 load_dotenv()
@@ -61,7 +67,7 @@ network_DIRECTORY = './data'
 adjlist_DIRECTORY = './data/varExp_filtered.adjlist'
 feat_sum_DIRECTORY = './data/feat_summary_varExp_filtered_class.csv'
 modularity_DIRECTORY = './data/modularity.pkl'
-cell_line_DIRECTORY = './data/cell_lines.pkl'
+cell_line_DIRECTORY = './data/cell_line_names.pkl'
 
 launch_uid = uuid.uuid4()
 
@@ -77,7 +83,6 @@ my_bucket = s3.Bucket(s3_bucket_name)
 global dm_data
 dm_data = pd.read_pickle(DepMap19Q4_DIRECTORY)
 df_sample_data = pd.read_pickle(DepMap19Q4_SAMPLE_INFO)
-l200_genes = pd.read_pickle(L200_GENES)
 
 # read pickled data for biological network information and communities
 global G
@@ -137,7 +142,7 @@ else:
 app = DashProxy(__name__, use_pages=True, suppress_callback_exceptions=True,
                 background_callback_manager=background_callback_manager,
                 external_stylesheets=[dbc.themes.BOOTSTRAP],
-                meta_tags=[{'name': 'viewport', 'content': 'width=2000px, initial-scale=0.8'}], 
+                meta_tags=[{'name': 'viewport', 'content': 'width=device-width, initial-scale=1'}], 
                 transforms=[ServersideOutputTransform(backend=my_backend), MultiplexerTransform()])
 
 # define server for running app
@@ -151,9 +156,8 @@ app.layout = html.Div([
         dbc.NavItem(dbc.NavLink("Predict", href="/predict")),
         dbc.DropdownMenu(
             children=[
-                dbc.DropdownMenuItem("Overview", href="/overview"),
-                dbc.DropdownMenuItem("Genes", href="/genes"),
-                dbc.DropdownMenuItem("Z-Scores", href="/zscore"),
+                dbc.DropdownMenuItem("Hits", href="/overview"),
+                dbc.DropdownMenuItem("Regressions", href="/genes"),
             ],
             nav=True,
             in_navbar=True,
@@ -161,15 +165,15 @@ app.layout = html.Div([
         ),
         dbc.DropdownMenu(
             children=[
+                dbc.DropdownMenuItem("gProfiler", href="/enrichment"),
                 dbc.DropdownMenuItem("Communities", href="/clusters"),
-                dbc.DropdownMenuItem("Gene Walk", href="#"),
             ],
             nav=True,
             in_navbar=True,
             label="Pathways",
         ),
     ],
-    brand="GO-LoCo",
+    brand="goloco",
     brand_href="/",
     color="primary",
     dark=True,
@@ -184,6 +188,9 @@ app.layout = html.Div([
     dcc.Store(id='input_filename', storage_type='session'),
     dcc.Store(id='total_hist-store', storage_type='memory'),
     dcc.Store(id='z_score_hist-store', storage_type='memory'),
+    dcc.Store(id='z-score-hits', storage_type='memory'),
+    dcc.Store(id='p-value-hits', storage_type='memory'),
+    dcc.Store(id='enrichment-hits', storage_type='session'),
     dcc.Loading(id='store-data-loading', children = [html.Div([dcc.Store(id='df_pred-store', storage_type='session')])], type='circle', fullscreen=True),
     dcc.Store(id='df_pred-store-tmp-1', storage_type='memory'),
     dcc.Store(id='df_pred-store-tmp-2', storage_type='memory'),
@@ -193,10 +200,11 @@ app.layout = html.Div([
     dcc.Store(id='df-counts-convert', storage_type='session'),
     dcc.Store(id='cell-line-or-experiment', storage_type='memory'),
     dcc.Store(id='cell-line-or-experiment-2', storage_type='memory'),
-    #dcc.Store(id='gene_list', storage_type='session', data=gene_list),
     dcc.Location(id='url_name'),
     dcc.Download(id='download-pred'),
     dcc.Download(id='download-convert'),
+    dcc.Download(id='download-z-genes'),
+    dcc.Download(id='download-p-genes'),
 
     html.Div(id ='df_pred-store-html'),
 
@@ -230,8 +238,6 @@ app.layout = html.Div([
         is_open=False,
     ),
 
-    html.Div(id='dummy_div_app'), 
-
     dbc.Modal(
         [
             dbc.ModalHeader("Congratulations"),
@@ -245,6 +251,25 @@ app.layout = html.Div([
         id="conversion-completed-popup",
         is_open=False,
     ),
+
+    dbc.Modal(
+        [
+            dbc.ModalBody("Select 'continue' to run gProfiler functional enrichment analysis and you will be redirected to another page."),
+            dbc.ModalFooter(
+                dbc.Row([dbc.Col(dbc.Button(
+                    "Cancel", id="stay-overview", color="primary", className="ms-auto", n_clicks=0)), 
+                         dbc.Col(dbc.Button(
+                    "Continue", id="continue-gprofile", color="success", className="ms-auto", n_clicks=0
+                ))]),
+            ),
+        ],
+        id="gprofile-overview-popup",
+        is_open=False,
+    ),
+
+    dcc.Location(id='url', refresh=True),
+
+    html.Div(id='dummy_div_app'), 
 ])
 
 #-----------------------------------------GENERAL FUNCTIONS---------------------------------------------------------------
@@ -281,7 +306,6 @@ def parse_contents(contents, filename):
             # Assume that the user uploaded an excel file
             df = pd.read_excel(io.BytesIO(decoded))
     except Exception as e:
-        print(e)
         return
     return df
 
@@ -300,6 +324,8 @@ def create_gene_link(gene, website, name):
         url = generate_tumor_portal_url(gene)
     elif website == 'ncbi':
         url = generate_ncbi_url(gene)
+    elif website == 'ensemble':
+        url = generate_ensemble_url(gene)
 
     if name == 'gene':
         text = gene
@@ -316,6 +342,9 @@ def generate_tumor_portal_url(gene):
 
 def generate_ncbi_url(gene):
     return f'https://www.ncbi.nlm.nih.gov/gene/?term={gene}'
+
+def generate_ensemble_url(gene):
+    return f'https://useast.ensembl.org/Homo_sapiens/Gene/Summary?g={gene}'
 
 def render_link(value):
     return dcc.Link(value, href='https://www.uniprot.org/uniprot/'+value)
@@ -418,6 +447,445 @@ def return_s3_object(s3, s3_bucket_name, pkl_filename):
     data = obj.get()['Body'].read()
     pkl_data = io.BytesIO(data)
     return pkl_data
+
+def logScale(input, input_start=1, input_end=50000, output_start=2, output_end=10):
+    m = (output_end - output_start) / (np.log(input_end) - np.log(input_start))
+    b = -m * np.log(input_start) + output_start
+    output = m * np.log(input) + b
+    return output
+
+def xScale(input, input_start=1, input_end=1000, output_start=2, output_end=200):
+    m = (output_end - output_start) / (input_end - input_start)
+    b = -m * input_start + output_start
+    output = m * input + b
+    return output
+
+def summarize_meta(meta):
+    dcol1 = ['version', 'date', 'organism', 'all results', 'ordered', 'no iea', 'sources', 'multiquery', 
+              'numeric ns', 'domain scope', 'measure underrepresentation', 'significance threshold method', 
+              'user threshold', 'no evidences', 'highlight results']
+    dcol2 = [meta['version'], meta['timestamp'], meta['query_metadata']['organism'],
+              str(meta['query_metadata']['all_results']),
+              str(meta['query_metadata']['ordered']),
+              str(meta['query_metadata']['no_iea']),
+              ', '.join([str(i) for i in meta['query_metadata']['sources']]),
+              str(meta['query_metadata']['combined']),
+              meta['query_metadata']['numeric_ns'],
+              meta['query_metadata']['domain_scope'],
+              str(meta['query_metadata']['measure_underrepresentation']),
+              meta['query_metadata']['significance_threshold_method'],
+              meta['query_metadata']['user_threshold'],
+              str(meta['query_metadata']['no_evidences']),
+              str(meta['query_metadata']['highlight'])]
+    
+    d_details=pd.DataFrame([dict(zip(dcol1, dcol2))])
+
+    return d_details
+
+def color(style, text):
+    return f"<span style='font-size:{str(style[1])}'><span style='color:{str(style[0])}'> {str(text)} </span></span>"
+
+def gostplot(gostres, query=False, capped=True, pal=None):
+    # gostres is the GOSt response list (contains results and metadata)
+    # This function will plot only the sources that were asked from the query
+
+    if pal is None:
+        pal = {
+            "GO:MF": "#dc3912",
+            "GO:BP": "#ff9900",
+            "GO:CC": "#109618",
+            "KEGG": "#dd4477",
+            "REAC": "#3366cc",
+            "WP": "#0099c6",
+            "TF": "#5574a6",
+            "MIRNA": "#22aa99",
+            "HPA": "#6633cc",
+            "CORUM": "#66aa00",
+            "HP": "#990099"
+        }
+
+    if 'result' not in gostres:
+        raise ValueError("Name 'result' not found from the input")
+    if 'meta' not in gostres:
+        raise ValueError("Name 'meta' not found from the input")
+
+    df = pd.DataFrame(gostres['result'])
+    meta = gostres['meta']
+    essential_names = ["source_order", "term_size", "term_name", "term_id", "source", "significant"]
+
+    if query:
+        chosen_sources = query
+        
+        widths = [meta['result_metadata'][source]['number_of_terms'] for source in chosen_sources]
+        widthscale = {source: meta['result_metadata'][source]['number_of_terms'] for source in chosen_sources}
+        
+        space = 1000
+        starts = []
+        starts.append(1000)
+
+        if not len(widthscale) < 2:
+            for i in range(1, len(widthscale)):
+                starts.append(starts[i-1] + space + widths[i - 1])
+                
+        starts = dict(zip(chosen_sources, starts))
+
+        sourcediff = set(chosen_sources) - set(pal.keys())
+        colors = [color for color in plt.cm.tab20.colors if color not in pal.values()]
+        
+        df = df[df['source'].isin(chosen_sources)]
+    
+    else:
+        chosen_sources = meta['query_metadata']['sources']
+        
+        widthscale = {source: meta['result_metadata'][source]['number_of_terms'] for source in chosen_sources}
+        starts = {source: sum(widthscale[s] for s in chosen_sources[:i]) + 1000 * i for i, source in enumerate(chosen_sources)}
+        
+        sourcediff = set(chosen_sources) - set(pal.keys())
+        colors = [color for color in plt.cm.tab20.colors if color not in pal.values()]
+        
+    if sourcediff:
+        use_cols = np.random.choice(colors, len(sourcediff), replace=False)
+        pal.update(dict(zip(sourcediff, use_cols)))
+
+    df['term_size_scaled'] = df['term_size'].apply(lambda x: logScale(x))
+    df['order'] = df.apply(lambda row: xScale(row['source_order'], input_start = 1, input_end=widthscale[row['source']], output_start=starts[row['source']], output_end = starts[row['source']] + widthscale[row['source']]), axis=1)
+    df['order'] = df['order'].apply(lambda x: xScale(x))
+    df['logpval'] = df['p_value'].apply(lambda x: -math.log10(x))
+    
+    if capped:
+        df['logpval'].loc[df['logpval'] > 16] = 15
+        ymin, ymax = -1, 18.5
+        ticklabels = ["0", "2", "4", "6", "8", "10", "12", "14", ">16"]
+        tickvals = [0, 2, 4, 6, 8, 10, 12, 14, 16]
+    else:
+        ymax = round(max(df['logpval']))
+        ymin = -1
+
+    xticklabels = [source + ' (' + str(df[df['source']==source].shape[0]) + ')' for source in chosen_sources]
+
+    fig = go.Figure()
+
+    for source in chosen_sources:
+        xstart = xScale(starts[source])
+        xend = xScale(starts[source] + widthscale[source])
+        
+        xmax = xend
+
+        source_df = df[df['source'] == source]
+        fig.add_trace(go.Scatter(
+            x=source_df['order'],
+            y=source_df['logpval'],
+            mode='markers',
+            marker=dict(
+                color=pal[source],
+                size=2*source_df['term_size_scaled'],
+                opacity=np.where(source_df['significant'], 0.8, np.where(source_df['p_value'] == 1, 0, 0.2)),
+                line=dict(width=0),
+            ),
+            name=source,
+            customdata=source_df[['native', 'term_size', 'name', 'p_value']],
+            hovertemplate='<b>%{customdata[0]} (%{customdata[1]})</b><br>%{customdata[2]}<br>%{customdata[3]:.3e}<extra></extra>',
+            texttemplate='%{customdata[0]}'
+        ))
+        
+        source_df = df[(df['source'] == source) & (df['highlighted']==True)]
+        fig.add_trace(go.Scatter(
+            x=source_df['order'],
+            y=source_df['logpval'],
+            mode='markers',
+            marker=dict(
+                color=pal[source],
+                size=2*source_df['term_size_scaled'],
+                opacity=np.where(source_df['significant'], 0.8, np.where(source_df['p_value'] == 1, 0, 0.2)),
+                line=dict(width=2,
+                          color='black'),
+            ),
+            name=source,
+            customdata=source_df[['native', 'term_size', 'name', 'p_value']],
+            hovertemplate='<b>%{customdata[0]} (%{customdata[1]})</b><br>%{customdata[2]}<br>%{customdata[3]:.3e}<extra></extra>',
+        ))    
+
+        source_df = source_df[['order', 'logpval', 'native', 'term_size', 'name', 'p_value', 'group_id']]
+        '''for row in source_df.iterrows():
+                fig.add_annotation(x=row[1]['order'], y=row[1]['logpval'],
+                text='<b>({})</b>'.format(row[1]['group_id']),
+                showarrow=True,
+                font=dict(size=12,
+                        color='black'))'''
+            
+        fig.add_shape(type="line",
+                        x0=xstart,
+                        x1=xend,
+                        y0=-0.5,
+                        y1=-0.5,
+                        line=dict(color=pal[source], 
+                        width=10))
+
+    fig.add_shape(type="line",
+                    x0=0,
+                    x1=0,
+                    y0=0,
+                    y1=16,
+                    line=dict(color='black', 
+                    width=4))
+
+    fig.add_shape(type="line",
+                    x0=0,
+                    x1=xmax,
+                    y0=-0.77,
+                    y1=-0.77,
+                    line=dict(color='black', 
+                    width=2))
+    
+    '''fig.add_shape(type="line",
+                x0=0,
+                x1=xmax,
+                y0=16,
+                y1=16,
+                line=dict(color='lightgray', 
+                          width=1.5,
+                         dash='dot'))'''
+
+    fig.update_layout(
+        plot_bgcolor='white',
+        showlegend=False,
+        title_text = '<b>gProfiler2 Enrichment of Functional Categories',
+        title_y = 0.9,
+        title_x = 0.55,
+        font_family = 'Arial',
+        font_color = 'black',
+        font_size=16,
+        yaxis_title="<b>-log10(p-adj)</b>",
+        yaxis=dict(
+            range=[ymin, ymax],
+            tickmode='array',
+            tickvals=tickvals,
+            ticktext=ticklabels,
+            ticks="outside", 
+            tickwidth=1.5,
+            ticklen=5,
+            tickfont=dict(size=14),
+            zeroline=False,
+            showgrid=False,
+           # title_standoff = 0,
+            showspikes=True,
+            spikethickness=1,
+            tickfont_family="Arial Black",
+        ),
+        xaxis_title=None,
+        xaxis=dict(
+            tickvals=[(xScale(starts[source]) + xScale(starts[source] + widthscale[source])) / 2 for source in chosen_sources],
+            ticktext=xticklabels,
+            tick0 = -1,
+            range=[-4, xmax],
+            #rangemode = "nonnegative",
+            zeroline=False,
+            tickangle=-30,
+            tickfont=dict(size=14),
+            tickfont_family="Arial Black",
+        ),
+        margin=dict(t=40, r=0, b=20, l=0),
+        height=400,
+        hoverlabel=dict(
+            bgcolor='whitesmoke',
+            font_size=12,
+            font_family="Arial",
+            align="auto",
+            ),
+    )
+    
+    fig.add_annotation(x=xmax, y=16,
+        text="values above this threshold are capped",
+        showarrow=False,
+        xshift=-100,
+        yshift=-10,
+        font=dict(size=10,
+                  color='darkgray'))
+    
+    highlighted_df = df[df['highlighted']==True].sort_values(by='group_id')
+    highlighted_df = highlighted_df[['group_id', 'source', 'native', 'name', 'term_size', 'p_value', 'p_value']]
+    highlighted_df.columns = ['group_id', 'source', 'native', 'name', 'term_size', 'p_value_2', 'p_value']
+    highlighted_df['p_value_2'] = highlighted_df['p_value_2'].apply(lambda x: math.log(x))
+    
+    more_styles = discrete_background_color_bins(highlighted_df, n_bins=100, columns=['p_value_2'])
+    
+    table = dash_table.DataTable(data=highlighted_df.to_dict('records'),
+                                        columns=[{'name': 'ID', 'id': 'group_id', 'type':'text'},
+                                                {'name': 'Source', 'id': 'source', 'type': 'text'},
+                                                {'name': 'Term ID', 'id': 'native', 'type': 'text'},
+                                                {'name': 'Term Name', 'id': 'name', 'type': 'text'},
+                                                {'name': 'Term Size', 'id': 'term_size', 'type': 'text'},
+                                                {'name': '', 'id': 'p_value_2', 'type': 'numeric', 'format': Format(precision=2, scheme=Scheme.exponent)},
+                                                {'name': 'p-value (adj)', 'id': 'p_value', 'type': 'numeric', 'format': Format(precision=2, scheme=Scheme.exponent)}],
+                                        filter_action='native',
+                                        sort_action='native',
+                                        sort_mode='multi',
+                                        style_table={
+                                            'height': 600,
+                                            'overflowX': 'auto',
+                                            'overflowY': 'auto'
+                                        },
+                                        style_data={
+                                            'whiteSpace': 'normal',
+                                            'height': 'auto',
+                                        },
+                                        style_header={
+                                                    'backgroundColor': 'lightgrey',
+                                                    'font_family': 'Arial',
+                                                    'font_size': '16px',
+                                                    'paddingLeft': '20px',
+                                                    'color': 'black',
+                                                    'fontWeight': 'bold'
+                                                },
+                                        style_cell={'textAlign': 'left',                               
+                                                    'font_family': 'Arial',
+                                                    'font_size': '16px',
+                                                    'paddingLeft': '20px',
+                                                    'overflow': 'hidden',
+                                                    'textOverflow': 'ellipsis',
+                                                    },
+                                        style_data_conditional=more_styles,)
+    df_meta = summarize_meta(meta)
+    df_mapping = pd.DataFrame(meta['genes_metadata']['query']['query_1']['mapping']).T.reset_index().rename(columns={'index': 'HGNC ID', 0: 'Ensembl ID'})
+    df_mapping['HGNC ID'] = df_mapping['HGNC ID'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
+    df_mapping['Ensembl ID'] = df_mapping['Ensembl ID'].apply(lambda x: create_gene_link(x, 'ensemble', 'gene'))
+    return fig, table, [dbc.Table.from_dataframe(df_mapping, striped=True, bordered=True, index=False, size='sm')], [dbc.Table.from_dataframe(df_meta, striped=False, bordered=False, index=False, size='sm')]
+
+def discrete_background_color_bins(df, n_bins=100, columns='all'):
+    import colorlover
+    bounds = [i * (1.0 / n_bins) for i in range(n_bins + 1)]
+    if columns == 'all':
+        if 'id' in df:
+            df_numeric_columns = df.select_dtypes('number').drop(['id'], axis=1)
+        else:
+            df_numeric_columns = df.select_dtypes('number')
+    else:
+        df_numeric_columns = df[columns]
+    df_max = df_numeric_columns.max().max()
+    df_min = df_numeric_columns.min().min()
+    ranges = [
+        ((df_max - df_min) * i) + df_min
+        for i in bounds
+    ]
+    styles = [{
+                                            'if': {'row_index': 'odd'},
+                                            'backgroundColor': 'whitesmoke',
+                                            },
+                                        {'if': {
+                                                'filter_query': '{source} = "GO:MF"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#dc3912",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "GO:BP"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#ff9900",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "GO:CC"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#109618",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "KEGG"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#dd4477",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "REAC"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#3366cc",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "WP"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#0099c6",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "TF"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#5574a6",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "MIRNA"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#22aa99",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "HPA"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#6633cc",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "CORUM"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#66aa00",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                            
+                                          {'if': {
+                                                'filter_query': '{source} = "HP"',
+                                                'column_id': ['source', 'native']
+                                            },
+                                            'backgroundColor': "#990099",
+                                            'color': 'white',
+                                            'fontWeight': 'bold',},
+                                        {'if': {'column_id': 'p_value_2'},
+                                                 'width': '1%'},
+                            
+                                        ]
+    colors = sns.color_palette('viridis', n_colors=len(bounds))
+    colors = colors.as_hex()
+    
+    for i in range(1, len(bounds)):
+        min_bound = ranges[i - 1]
+        max_bound = ranges[i]
+        backgroundColor = colors[i - 1]
+        color = 'white' if i > len(bounds) / 2. else 'inherit'
+
+        for column in df_numeric_columns:
+            styles.append({
+                'if': {
+                    'filter_query': (
+                        '{{{column}}} >= {min_bound}' +
+                        (' && {{{column}}} < {max_bound}' if (i < len(bounds) - 1) else '')
+                    ).format(column=column, min_bound=min_bound, max_bound=max_bound),
+                    'column_id': column
+                },
+                'backgroundColor': backgroundColor,
+                'color': backgroundColor
+            })
+
+    return styles
+
 #----------------------------------------CALLBACKS----------------------------------------------------------------
 
 @app.callback(
@@ -441,7 +909,7 @@ def toggle_modal(n1, n2, L200_filename, is_open):
 def toggle_modal(n1, n2, L200_filename, is_open):
     if L200_filename is not None:
         if n1 or n2:
-            return not is_open
+            return not is_openleted-popup
         return is_open
 
 @app.callback(
@@ -472,6 +940,7 @@ def toggle_modal(n1, n2, L200_filename, is_open):
               State('completed-popup', 'is_open'),
               prevent_initial_call = True)
 def toggle_modal(n1, n2, is_open):
+    trigger_id = ctx.triggered_id
     if n1 or n2:
         return not is_open
     return is_open
@@ -486,6 +955,19 @@ def toggle_modal(n1, n2, is_open):
         return not is_open
     return is_open
 
+@app.callback(
+    Output('gprofile-overview-popup', 'is_open'),
+    [Input('stay-overview', 'n_clicks'), 
+    Input('continue-gprofile', 'n_clicks'),
+    Input('run-gprofiler-zscores', 'n_clicks'),
+    Input('run-gprofiler-pvalue', 'n_clicks')],
+    [State('gprofile-overview-popup', 'is_open')],
+    prevent_initial_call = True
+)
+def toggle_modal(n1, n2, n3, n4, is_open):
+    if n1 or n2 or n3 or n4:
+        return not is_open
+    return is_open
 #---------------------------------------------------------------PREDICT PAGE CALLBACKS-------------------------------------------------------
 
 @app.callback(
@@ -506,6 +988,7 @@ def store_l200_data(l200_contents, l200_filename):
             df_l200 = df_l200.set_index('feature')
             exp = df_l200.columns.tolist()
             na = df_l200.isnull().values.any()
+            l200_genes = pd.read_pickle(L200_GENES)
             if len(genes)==200 and Counter(genes)==Counter(l200_genes) and len(exp)>0 and not na:
                 return data.to_dict('records'), [html.Br(),
                         dbc.Alert(
@@ -947,7 +1430,8 @@ def run_convert(n_clicks, read_data, read_filename, sequence_data, sequence_file
         return pkl_filename, None
 
 @app.callback(ServersideOutput('df-counts-convert', 'data'),
-              Input('df-counts-convert-tmp', 'data'),)
+              Input('df-counts-convert-tmp', 'data'),
+              prevent_initial_call = True) #check
 def update_df_convert(pkl_filename):
     if pkl_filename is None:
         return dash.no_update
@@ -996,9 +1480,7 @@ def run_inference(set_progress, con_n_clicks, L200_filename, L200_data): #set_pr
         a = infer(df_l200)
         genes = []
         ceres_pred = np.zeros(shape=(len(scope),len(a.experiments)))
-        logging.warning(ceres_pred.shape)
         z_scores = np.zeros(shape=(len(scope),len(a.experiments)))
-        logging.warning(z_scores.shape)
         x_avgs = []
         x_stds = []
         t1 = time.perf_counter()
@@ -1077,7 +1559,8 @@ def submit_prediction(n_clicks, df_pred_contents, df_pred_filename):
 @app.callback(ServersideOutput('df_pred-store', 'data'),
               Input('df_pred-store-tmp-1', 'data'),
               Input('df_pred-store-tmp-2', 'data'),
-              Input('df_pred-store-tmp-3', 'data'))
+              Input('df_pred-store-tmp-3', 'data'),
+              prevent_initial_call = True) #check
 def update_df_pred_store(data1, data2, pkl_filename):
     trigger_id = ctx.triggered_id
     if trigger_id=='df_pred-store-tmp-1':
@@ -1151,36 +1634,44 @@ def update_table(experiment, pred_data):
                                               sort_mode='multi',
                                               style_cell={'textAlign': 'left',                               
                                                           'font_family': 'Arial',
-                                                          'font_size': '16px',
-                                                          'paddingLeft': '20px',
-                                                          'padding': '5px',
-                                                          'padding-left': '20px',},
+                                                          'font_size': '12px',
+                                                          #'paddingLeft': '20px',
+                                                          #'padding': '5px',
+                                                          #'padding-left': '20px',
+                                                            'height': '10px',
+                                                            'minHeight': '10px',
+                                                            'maxHeight': '10px',
+                                                          },
                                               style_header={
                                                             'backgroundColor': 'dodgerblue',
                                                             'font_family': 'sans-serif',
-                                                            'font_size': '18px',
-                                                            'paddingLeft': '20px',
-                                                            'padding': '5px',
+                                                            'font_size': '12px',
+                                                            #'paddingLeft': '5px',
+                                                            #'padding': '5px',
                                                             'color': 'white',
                                                             'fontWeight': 'bold',
-                                                            'padding-left': '20px',
-                                                            'height': 'auto',
+                                                            #'padding-left': '20px',
+                                                            'height': '10px',
+                                                            'minHeight': '10px',
+                                                            'maxHeight': '10px',
                                                             'whiteSpace': 'normal',
                                                             'maxWidth': '100px',
                                                         },
                                               style_table={
-                                                    'height': 800,
+                                                    'height': 400,
                                                     'overflow': 'hidden',
                                                     'textOverflow': 'ellipsis',
                                               },
                                               style_data={
                                                     'width': '50px', 'minWidth': '50px', 'maxWidth': '150px',
                                                     'overflow': 'hidden',
-                                                    'tex4tOverflow': 'ellipsis',
+                                                    'textOverflow': 'ellipsis',
                                                     'minWidth': 50,
                                                     'whiteSpace': 'normal',
-                                                    'height': 'auto',
-                                                    'lineHeight': '15px'
+                                                    'height': '10px',
+                                                    'minHeight': '10px',
+                                                    'maxHeight': '10px',
+                                                    'lineHeight': '10px'
                                               },
                                               style_data_conditional=([{'if': {
                                                                               'filter_query': '{gene_category} = "common essential"',
@@ -1240,16 +1731,20 @@ def update_table(experiment, pred_data):
               Output('z_score_dist_graph_pdf','figure'),
               Input('choose_experiment_2', 'value'),
               Input('gene_cat_checklist_1', 'value'),
+              Input('distribution_color', 'value'),
               State('df_pred-store', 'data'),
               prevent_initial_call = True)
-def update_overview(experiment, categories, pred_data):
-    if experiment is None or categories is None or pred_data is None:
+def update_overview(experiment, categories, cmap, pred_data):
+    if experiment is None or pred_data is None or categories==[] or cmap is None:
         return dash.no_update
     df_pred = pd.DataFrame(pred_data)
-    all_colors = {}
-    all_colors.update(mcolors.TABLEAU_COLORS)
-    color_dict = dict(zip(["conditional essential", "common nonessential", "common essential"], mcolors.TABLEAU_COLORS))
     
+    cmaph = plt.cm.get_cmap(cmap, 3)
+    cmaph = [(cmaph(i)[0], cmaph(i)[1], cmaph(i)[2], cmaph(i)[3])  for i in range(3)]
+    cmaph = [mpl.colors.rgb2hex(i, keep_alpha=False) for i in cmaph]
+
+    color_dict = dict(zip(["common essential", "common nonessential", "conditional essential"], cmaph))
+
     fig = go.Figure()
 
     fig.update_layout(
@@ -1262,13 +1757,16 @@ def update_overview(experiment, categories, pred_data):
         gridwidth=1,
         gridcolor='lightgray'))
     fig.update_layout(plot_bgcolor='white')
-    fig.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
+    fig.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5, tickfont_family="Arial Black",
+                    showline=True, linewidth=1, linecolor='black', mirror=True,)
+    fig.update_xaxes(tickfont_family="Arial Black",
+                    showline=True, linewidth=1, linecolor='black', mirror=True,)
     ymax = 0
 
     for i, cat in enumerate(categories):
         hist_graph = go.Histogram(x=df_pred[df_pred['gene_category']==cat][experiment + ' (CERES Pred)'].values, 
                                   name=cat, 
-                                  marker_color=all_colors[color_dict[cat]],
+                                  marker_color=color_dict[cat],
                                   opacity=0.50)
         fig.add_trace(hist_graph)
         bins = fig.full_figure_for_development().data[0].xbins
@@ -1283,60 +1781,71 @@ def update_overview(experiment, categories, pred_data):
         fig.add_trace(go.Scatter(x=[x_avg, x_avg], 
                                  y = [0, ymax], 
                                  mode='lines',
-                                 line=dict(color=adjust_lightness(all_colors[color_dict[cat]], 0.9), width=2, dash='dot'),
-                                 name=cat + ' (average)'))
-    fig.update_layout(barmode='overlay')
+                                 line=dict(color=adjust_lightness(color_dict[cat], 0.9), width=4, dash='dot'),
+                                 name=cat + ' (average)',
+                                 showlegend=False))
     fig.update_layout(
-    xaxis_title="Predicted CERES Score",
-    yaxis_title="Number of Genes",
-    legend_title="Gene Category",
-    legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-    margin=dict(t=50, b=80))
+    barmode='overlay',
+    title_text = '<b>Distribution of Predicted CERES Scores</b>',
+    title_x = 0.5,
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,
+    xaxis_title="<b>Predicted CERES Score</b>",
+    yaxis_title="<b>Number of Genes</b>",
+    legend = dict(font=dict(size=14, family="Arial",), orientation='h', yanchor='top', y=-0.2),
+    margin=dict(t=50, b=80)
+    )
     
     fig2 = go.Figure()
     fig2.update_layout(
     xaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'),
+        gridcolor='lightgray',
+        range=[-1000, 19000],
+        showticklabels=False,
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,),
     yaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'))
-    fig2.update_layout(plot_bgcolor='white')
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,))
+    fig2.update_layout(plot_bgcolor='white',
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,)
     fig2.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
 
-    ymax = 0
     for i, cat in enumerate(categories):
-        n_hist_graph = go.Histogram(x=df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values, name=cat, marker_color=all_colors[color_dict[cat]], opacity=0.50)
+        n_hist_graph = go.Scatter(x=np.sort(df_pred.sort_values(by=[experiment + ' (Z-Score)']).reindex().query('gene_category == @cat').index), 
+                                  y=np.sort(df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values), 
+                                  name=cat,
+                                  customdata=list(df_pred[df_pred['gene_category']==cat].sort_values(by=[experiment + ' (Z-Score)']).gene),
+                                  hovertemplate='gene:%{customdata}',
+                                  marker_color=color_dict[cat],
+                                  line=dict(color=adjust_lightness(color_dict[cat], 0.9), width=4),
+                                  opacity=0.90)
         fig2.add_trace(n_hist_graph)
-        bins = fig2.full_figure_for_development().data[0].xbins
-        nbins = round((bins['end'] - bins['start'])/bins['size'])
 
-        counts, edges = np.histogram(df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values, bins=nbins)
-        y = max(counts)
-        if y > ymax:
-            ymax = y
-        ymax += 10
-
-    for cat in categories:
-        crit_vals = find_alpha_05(df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values)
-        fig2.add_trace(go.Scatter(x=[crit_vals[0], crit_vals[0], None, crit_vals[1], crit_vals[1]],
-                                 y = [0, ymax, None, 0, ymax], 
-                                 mode='lines',
-                                 line=dict(color=adjust_lightness(all_colors[color_dict[cat]], 0.7), width=2, dash='dot'),
-                                 name=cat + ' (alpha=0.05)'),)
     fig2.update_layout(barmode='overlay')
     fig2.update_layout(
-    xaxis_title="Predicted Z-Score",
-    yaxis_title="Number of Genes",
-    legend_title="Gene Category",
-    legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-    margin=dict(t=50, b=80))
+    title_text = '<b>Z-Scores of CERES Predictions</b>',
+    title_x = 0.5,
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,
+    yaxis_title="<b>Predicted Z-Score</b>",
+    #width=600,
+    legend = dict(font=dict(size=14, family="Arial",), orientation='h', yanchor='top', y=-0.2),
+    margin=dict(t=50, b=80)
+    )
 
     fig3 = ff.create_distplot([df_pred[df_pred['gene_category']==cat][experiment + ' (CERES Pred)'].values for cat in categories],
                               categories,
-                              colors=[all_colors[color_dict[cat]] for cat in categories],
+                              colors=[color_dict[cat] for cat in categories],
                               bin_size = 0.1,
                               show_curve = True,
                               show_rug = True)
@@ -1344,48 +1853,81 @@ def update_overview(experiment, categories, pred_data):
     xaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'),
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,),
     yaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'))
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,),
+    xaxis1=dict(showline=True, linewidth=1, linecolor='black', mirror=True,),
+    yaxis2=dict(showline=True, linewidth=1, linecolor='black', mirror=True,))
     fig3.update_layout(plot_bgcolor='white')
+
     fig3.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
-    ymax = 0
     fig3.update_layout(barmode='overlay')
     fig3.update_layout(
-    xaxis_title="Predicted CERES Score",
-    yaxis_title="Probability Density",
-    legend_title="Gene Category",
-    legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-    margin=dict(t=50, b=80))
-
-    fig4 = ff.create_distplot([df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values for cat in categories],
-                              categories,
-                              colors=[all_colors[color_dict[cat]] for cat in categories],
-                              bin_size = 0.1,
-                              show_curve = True,
-                              show_rug = True)
+    title_text = '<b>PDF of Predicted CERES Scores</b>',
+    title_x = 0.5,
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,
+    xaxis_title="<b>Predicted CERES Score</b>",
+    yaxis_title="<b>Probability Density</b>",  
+    legend = dict(font=dict(size=14, family="Arial"), orientation='h', yanchor='top', y=-0.2),
+    margin=dict(t=50, b=80)
+    )
+    
+    fig4 = go.Figure()
+    fig4.update_layout(barmode='overlay')
     fig4.update_layout(
     xaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'),
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,),
     yaxis=dict(
         showgrid=True,
         gridwidth=1,
-        gridcolor='lightgray'))
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,))
     fig4.update_layout(plot_bgcolor='white')
     fig4.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
-    ymax = 0
-    fig4.update_layout(barmode='overlay')
-    fig4.update_layout(
-    xaxis_title="Predicted Z-Scores",
-    yaxis_title="Probability Density",
-    legend_title="Gene Category",
-    legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-    margin=dict(t=50, b=80))
     
+    df_pred['P-Value'] = df_pred[experiment + ' (Z-Score)'].apply(lambda x: norm.sf(abs(x)))
+    df_pred['Z-Z-Score'] = df_pred[experiment + ' (Z-Score)'].sub(df_pred[experiment + ' (Z-Score)'].mean()).div(df_pred[experiment + ' (Z-Score)'].std(ddof=0))
+    df_pred['P-Value-Z'] = df_pred['Z-Z-Score'].apply(lambda x: norm.sf(abs(x)))
+    df_pred['P-Value-Comb'] = df_pred['P-Value'] * df_pred['P-Value-Z']
+    df_pred['log10Pcomb'] = df_pred['P-Value-Comb'].apply(lambda x: -np.log10(x))
+        
+    for i, cat in enumerate(categories):
+        n_hist_graph_2 = go.Scatter(x=df_pred[df_pred['gene_category']==cat][experiment + ' (CERES Pred)'].values, 
+                                  y=df_pred[df_pred['gene_category']==cat]['log10Pcomb'].values, 
+                                  name=cat,
+                                  customdata=list(df_pred[df_pred['gene_category']==cat].gene),
+                                  hovertemplate='gene:%{customdata}',
+                                  mode='markers',
+                                  marker_color=color_dict[cat],
+                                  opacity=0.90)
+        fig4.add_trace(n_hist_graph_2)
+
+    
+    fig4.update_layout(
+    barmode='overlay',
+    title_text = '<b>Volcano Plot of CERES Scores</b>',
+    title_x = 0.5,
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,
+    xaxis_title="<b>Predicted CERES Score</b>",
+    yaxis_title="<b>-log10(p-value)</b>",
+    legend = dict(font=dict(size=14, family="Arial"), orientation='h', yanchor='top', y=-0.2),
+    margin=dict(t=50, b=80)
+    )
 
     return fig, fig2, fig3, fig4
 
@@ -1418,7 +1960,7 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
             df_pred = df_pred.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
             df_pred = df_pred.round(3)
 
-            return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True)
+            return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True, size='sm')
         
     if trigger_id == 'z_score_dist_graph':
         if pred_data is not None and z_score_data is not None and experiment is not None and z_score_fig is not None:
@@ -1438,7 +1980,439 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
             df_pred['gene'] = df_pred['gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
             df_pred = df_pred.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
             df_pred = df_pred.round(3)
-            return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True)
+            return dbc.Table.from_dataframe(df_pred, striped=True, bordered=True, hover=True, size='sm')
+
+@app.callback(Output('output_z_score', 'figure'),
+              Output('selective-gene-table', 'children'),
+              Output('download-z-genes-button', 'disabled'),
+              Output('run-gprofiler-zscores', 'disabled'),
+              Output('z-score-hits', 'data'),
+              Input('choose_experiment_3', 'value'),
+              State('experiment_labels', 'data'),
+              State('df_pred-store', 'data'),
+              Input('select_number_genes', 'value'),
+              Input('primary_c', 'value'),
+              Input('experiment_c', 'value'),
+              Input('sig_genes_threshold_1', 'value'),
+              Input('z-score_threshold_1', 'value'),
+              State('select_primary_cat', 'value'),
+              Input('select_sub_cat', 'value'),
+              Input('secondary_c', 'value'),
+              prevent_initial_call = True)
+def update_z_score_graph(experiment, experiments, pred_data, n_genes, primary_c, experiment_c, sig_thres, avg_range, cat, sub_cat, secondary_c):
+    if experiment is None or experiments is None or pred_data is None or sig_thres is None or avg_range is None:
+        return dash.no_update
+    else:
+        df_pred = pd.DataFrame(pred_data)
+        df_pred = df_pred[(df_pred['avg'] >= avg_range[0]) & (df_pred['avg'] <= avg_range[1]) & (df_pred[experiment + ' (CERES Pred)'] <= sig_thres)]
+        
+        color_list = ['#7f00ff', '#0000ff', '#00ffff','#ffff00', '#007fff', '#7fff00', '#00ff00']
+        color_dict = dict(zip(experiments, color_list))
+
+        fig = go.Figure()
+
+        df_pred = df_pred.sort_values(by=experiment + ' (Z-Score)')
+        top_genes = df_pred['gene'][0:int(n_genes)]
+        n_genes = len(top_genes)
+
+        plot_min = 0
+        plot_max = 0
+
+        dm_data_small = dm_data.dropna()
+        dm_data_small = dm_data_small.merge(df_sample_data, how='left', right_on='DepMap_ID', left_index=True)
+        
+        fig.add_shape(type="line",
+            x0=-1,
+            x1=-1,
+            y0=-1,
+            y1=n_genes-0.7,
+            line=dict(color='red', 
+                        width=3,
+                        dash='dot'))
+        
+        fig.add_annotation(x=-1, y=n_genes,
+        text="<b>Avg CERES Score:</b><br>Common Essential",
+        showarrow=False,
+        #xshift=,
+        #yshift=-1,
+        font=dict(size=12,
+                  color='red'))
+        
+        fig.add_shape(type="line",
+            x0=0,
+            x1=0,
+            y0=-1,
+            y1=n_genes-0.7,
+            line=dict(color='blue', 
+                        width=3,
+                        dash='dot'))
+        
+        fig.add_annotation(x=0, y=n_genes,
+            text="<b>Avg CERES Score:</b><br>Common Nonessential",
+            showarrow=False,
+            #xshift=,
+            #yshift=-1,
+            font=dict(size=12,
+                  color='blue'))
+
+        for i, gene in reversed(list(enumerate(top_genes))):
+            if i > 0:
+                show = False
+            else:
+                show = True
+            
+            x = dm_data_small[gene].values[~np.isnan(dm_data_small[gene].values)]
+
+            if min(x) < plot_min:
+                plot_min = min(x)
+            if max(x) > plot_max:
+                plot_max = max(x)
+
+            fig.add_trace(go.Violin(x=x,
+                                    y=[gene] * len(x),
+                                    side='positive',
+                                    line_color=primary_c,
+                                    name='DepMap: All Cells',
+                                    orientation='h',
+                                    showlegend=show,
+                                    points=False,
+                                    meanline_visible=True))
+            
+            if cat is not None and sub_cat is not None:
+                y = dm_data_small[dm_data_small[cat]==sub_cat][gene].values[~np.isnan(dm_data_small[dm_data_small[cat]==sub_cat][gene])]
+
+                if min(y) < plot_min:
+                    plot_min = min(y)
+                if max(y) > plot_max:
+                    plot_max = max(y)
+
+                fig.add_trace(go.Violin(x=y,
+                                y=[gene] * len(y),
+                                side='negative',
+                                line_color=secondary_c,
+                                name='DepMap: ' + sub_cat,
+                                orientation='h',
+                                showlegend=show,
+                                points=False,
+                                meanline_visible=True)) 
+
+            fig.add_trace(go.Scatter(x=df_pred[experiment + ' (CERES Pred)'][df_pred['gene']==gene],
+                                     y=[gene],
+                                     mode='markers',
+                                     marker=dict(
+                                         symbol='diamond',
+                                         color=experiment_c,
+                                         size=9,
+                                         line=dict(
+                                             color='DarkSlateGray',
+                                             width=1
+                                         )), name=experiment + ' (CERES Prediction)',
+                                         showlegend=show))
+
+        fig.add_trace(go.Scatter(x=None, y=None, name="ghost1", showlegend=False))
+        fig.update_layout(xaxis2= {'anchor': 'y', 'overlaying': 'x', 'side': 'top'},
+                  yaxis_domain=[0, 1])
+
+        if n_genes > 20:
+            height = 30 * n_genes
+        else:
+            height = 610
+            
+        leg_y = -0.1 * 20 / n_genes
+        
+        fig.update_layout(
+        plot_bgcolor='white',
+        title_text = '<b>Top {} Selective Essential Genes by Z-Score</b><br><sup>{} (CERES Prediction)</sup>'.format(n_genes, experiment),
+        title_x = 0.5,
+        #title_y = 1,
+        xaxis_title="<b>CERES Score</b>",
+        font_family = 'Arial',
+        font_color = 'black',
+        font_size=16,
+        legend = dict(font=dict(size=16, family="Arial Black", color="black"), orientation='h', yanchor='top', x=-0.1, y=leg_y),
+        margin=dict(t=80, b=0),
+        violingap=0,
+        violingroupgap=0,
+        violinmode='overlay',
+        height=height,
+        #width=600,
+        )
+
+        fig.update_yaxes(
+            range=[-1, n_genes],
+            zerolinecolor='black',
+            zerolinewidth=0.5,
+            tickfont_family="Arial Black", 
+            tickfont=dict(size=16)
+        )
+        
+
+        fig.update_xaxes(dict(
+            zeroline=True,
+            zerolinecolor='lightgray',
+            zerolinewidth=0.5,
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='lightgray'),
+            range=[plot_min-0.2, plot_max+0.2],
+            tickfont_family="Arial Black", 
+            tickfont=dict(size=16))
+        
+        minx = round(fig.layout.xaxis.range[0], 1)
+        maxx = round(fig.layout.xaxis.range[1], 1)
+
+        x_tick_vals = [i/10 for i in range(int(10*minx), int(10*maxx)) if i%5==0]
+        
+        s_c = {-4.0: ['black', '16px'],
+               -3.5: ['black', '16px'],
+               -3.0: ['black', '16px'],
+               -2.5: ['black', '16px'],
+               -2.0: ['black', '16px'],
+               -1.5: ['black', '16px'],
+               -1.0: ['red', '18px'],
+               -0.5: ['black', '16px'],
+                0.0: ['blue', '18px'],
+                0.5: ['black', '16px'],
+                1.0: ['black', '16px'],
+                1.5: ['black', '16px'],
+                2.0: ['black', '16px'],
+                2.5: ['black', '16px']}
+        
+        colors = [s_c[i] for i in x_tick_vals if i in s_c.keys()]
+        keys = dict(zip(x_tick_vals, colors))
+        ticktext = [color(v, k) for k, v in keys.items()]
+        
+        fig.update_layout(
+            xaxis=dict(tickmode='array', ticktext=ticktext, tickvals=x_tick_vals),
+        )
+        
+        fig.add_shape(type="line",
+            x0=plot_min-0.2,
+            x1=plot_max+0.2,
+            y0=-1,
+            y1=-1,
+            line=dict(color='black', 
+                        width=4,))
+
+        df_return = df_pred[['gene', experiment + ' (CERES Pred)', experiment + ' (Z-Score)']][0:int(n_genes)]
+        df_return = df_return.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
+        df_return = df_return.round(3)
+        select_genes = df_return['Gene'].values.tolist()
+        df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'depmap', 'gene'))
+
+        return fig, dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True, size='sm'), False, False, select_genes
+
+@app.callback(Output('download-z-genes', 'data'),
+              State('z-score-hits', 'data'),
+              State('choose_experiment_3', 'value'),
+              Input('download-z-genes-button', 'n_clicks'),
+              prevent_initial_call = True) #check
+def download_z_genes(genes, experiment, n_clicks):
+    if genes is None or experiment is None:
+        return dash.no_update
+    else:
+        return_genes = "\n".join(genes)
+        return dict(content=return_genes, filename=experiment+'_selective_genes.txt')
+
+@app.callback(Output('download-p-genes', 'data'),
+              State('p-value-hits', 'data'),
+              State('choose_experiment_4', 'value'),
+              Input('download-p-genes-button', 'n_clicks'),
+              prevent_initial_call = True) #check
+def download_z_genes(genes, experiment, n_clicks):
+    if genes is None or experiment is None:
+        return dash.no_update
+    else:
+        return_genes = "\n".join(genes)
+        return dict(content=return_genes, filename=experiment+'_selective_genes.txt')
+
+@app.callback(Output('enrichment-hits', 'data'),
+              Input('p-value-hits', 'data'),
+              Input('z-score-hits', 'data'),
+              prevent_initial_call = True)
+def update_enrichment(p_hits, z_hits):
+    if p_hits is None and z_hits is None:
+        return dash.no_update
+    else:
+        trigger_id = ctx.triggered_id
+        if trigger_id == 'p-value-hits':
+            return p_hits
+        elif trigger_id == 'z-score-hits':
+            return z_hits
+        
+
+@app.callback(Output('url', 'href'),
+              Input('continue-gprofile', 'n_clicks'),
+              prevent_initial_call = True) #check
+def redirect_to_gprofiler_1(n_clicks):
+    if n_clicks:
+        return "/enrichment"
+
+@app.callback(Output('manhattan-plot', 'figure'),
+              Output('output-term-table', 'children'),
+              Output('gprofile-gene-mapping', 'children'),
+              Output('meta-data-info', 'children'),
+              State('enrichment-hits', 'data'),
+              Input('dummy_div_enrichment', 'children'),)
+def generate_manhattan_plot(genes, aux):
+    if genes is None:
+        return dash.no_update
+    else:
+        r = requests.post(
+            url='https://biit.cs.ut.ee/gprofiler/api/gost/profile/',
+            json={
+                'organism':'hsapiens',
+                'query': genes,
+                'highlight': True,
+            })
+        fig = gostplot(r.json())
+        return fig   
+
+@app.callback(Output('select_sub_cat', 'options'),
+              Input('select_primary_cat', 'value'),
+              prevent_initial_call = True)
+def return_options(color_by):
+    dm_data_small = dm_data.dropna()
+    dm_data_small = dm_data_small.merge(df_sample_data, how='left', right_on='DepMap_ID', left_index=True)
+    values = dm_data_small[color_by].unique()
+    return [{'label': value, 'value': value} for value in values]
+
+@app.callback(Output("m_select_sub_cat", 'options'),
+              Output("m_select_sub_cat", 'value'),
+              Input("m_select_secondary_cat", 'value'),
+              prevent_initial_call = True)
+def return_options(color_by):
+    dm_data_small = dm_data.dropna()
+    dm_data_small = dm_data_small.merge(df_sample_data, how='left', right_on='DepMap_ID', left_index=True)
+    values = dm_data_small[color_by].unique()
+    values = [i for i in values if i == i]
+    return [{'label': value, 'value': value} for value in values], None
+
+
+@app.callback(Output('output_volcano_plot', 'figure'),
+              Output('significant-gene-table-p', 'children'),
+              Output('download-p-genes-button', 'disabled'),
+              Output('run-gprofiler-pvalue', 'disabled'),
+              Output('p-value-hits', 'data'),
+              Input('choose_experiment_4', 'value'),
+              Input('choose_gene_cats', 'value'),
+              Input('conditions_c', 'value'),
+              Input('significant_c', 'value'),
+              Input('gene_effect_c', 'value'),
+              Input('p_val_c', 'value'),
+              Input('ceres_range_slider', 'value'),
+              Input('p_val_threshold', 'value'),
+              State('df_pred-store', 'data'),
+              prevent_initial_call = True)
+def update_volcano(experiment, categories, cmap, c_sig, c_ge, c_p, ceres_thres, p_val_thres, pred_data):
+    if experiment is None or pred_data is None or categories==[] or categories is None or cmap is None or c_sig is None or c_ge is None or c_p is None or ceres_thres==[] or p_val_thres is None:
+        return dash.no_update
+    df_pred = pd.DataFrame(pred_data)
+    
+    cmaph = plt.cm.get_cmap(cmap, 3)
+    cmaph = [(cmaph(i)[0], cmaph(i)[1], cmaph(i)[2], cmaph(i)[3])  for i in range(3)]
+    cmaph = [mpl.colors.rgb2hex(i, keep_alpha=False) for i in cmaph]
+
+    color_dict = dict(zip(["common essential", "common nonessential", "conditional essential"], cmaph))
+    
+    df_pred['P-Value'] = df_pred[experiment + ' (Z-Score)'].apply(lambda x: norm.sf(abs(x)))
+    df_pred['Z-Z-Score'] = df_pred[experiment + ' (Z-Score)'].sub(df_pred[experiment + ' (Z-Score)'].mean()).div(df_pred[experiment + ' (Z-Score)'].std(ddof=0))
+    df_pred['P-Value-Z'] = df_pred['Z-Z-Score'].apply(lambda x: norm.sf(abs(x)))
+    df_pred['P-Value-Comb'] = df_pred['P-Value'] * df_pred['P-Value-Z']
+    df_pred['log10Pcomb'] = df_pred['P-Value-Comb'].apply(lambda x: -np.log10(x))
+    
+    fig = go.Figure()
+    fig.update_layout(barmode='overlay')
+    fig.update_layout(
+    xaxis=dict(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,),
+    yaxis=dict(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='lightgray',
+        tickfont_family="Arial Black",
+        showline=True, linewidth=1, linecolor='black', mirror=True,))
+    fig.update_layout(plot_bgcolor='white')
+    fig.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
+        
+    for i, cat in enumerate(categories):
+        n_hist_graph_2 = go.Scatter(x=df_pred[(df_pred['gene_category']==cat) & (((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))][experiment + ' (CERES Pred)'].values, 
+                                  y=df_pred[(df_pred['gene_category']==cat) & (((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))]['log10Pcomb'].values, 
+                                  name=cat,
+                                  customdata=list(df_pred[(df_pred['gene_category']==cat) & (((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))].gene),
+                                  hovertemplate='gene:%{customdata}',
+                                  mode='markers',
+                                  marker_color=color_dict[cat],
+                                  #line=dict(color=adjust_lightness(all_colors[color_dict[cat]], 0.9), width=4),
+                                  opacity=0.30)
+        fig.add_trace(n_hist_graph_2)
+        
+    fig.add_trace(
+        go.Scatter(x=df_pred[(df_pred['gene_category'].isin(categories)) & ~(((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))][experiment + ' (CERES Pred)'].values, 
+                                  y=df_pred[(df_pred['gene_category'].isin(categories)) & ~(((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))]['log10Pcomb'].values, 
+                                  name='significant genes',
+                                  customdata=list(df_pred[(df_pred['gene_category'].isin(categories)) & ~(((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))].gene),
+                                  hovertemplate='gene:%{customdata}',
+                                  mode='markers',
+                                  marker_color=c_sig,
+                                  #line=dict(color=adjust_lightness(all_colors[color_dict[cat]], 0.9), width=4),
+                                  opacity=0.80)
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=[ceres_thres[0], ceres_thres[0]], 
+                   y=[min(df_pred['log10Pcomb'].values), max(df_pred['log10Pcomb'].values)], 
+                   name='min effect size',
+                   mode='lines',
+                   line = dict(color=c_ge, width=3, dash='dash'),
+                  showlegend =False)
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=[ceres_thres[1], ceres_thres[1]], 
+                   y=[min(df_pred['log10Pcomb'].values), max(df_pred['log10Pcomb'].values)], 
+                   name='max effect size',
+                   mode='lines',
+                   line = dict(color=c_ge, width=3, dash='dash'),
+                  showlegend=False)
+    )
+
+    fig.add_trace(
+        go.Scatter(x=[min(df_pred[experiment + ' (CERES Pred)']), max(df_pred[experiment + ' (CERES Pred)'])], 
+                   y=[p_val_thres, p_val_thres],
+                   name='min p-value',
+                   mode='lines',
+                   line = dict(color=c_p, width=3, dash='dash'),
+                  showlegend=False)
+    )
+
+    
+    fig.update_layout(
+    barmode='overlay',
+    title_text = '<b>Volcano Plot of CERES Scores</b>',
+    title_x = 0.5,
+    font_family = 'Arial',
+    font_color = 'black',
+    font_size=16,
+    xaxis_title="<b>Predicted CERES Score</b>",
+    yaxis_title="<b>-log10(p-value)</b>",
+    #width=600,
+    height=700,
+    legend = dict(font=dict(size=16, family="Arial"), orientation='h', yanchor='top', y=-0.2),
+    #margin=dict(t=50, b=80)
+    )
+
+    df_return = df_pred[(df_pred['gene_category'].isin(categories)) & ~(((df_pred[experiment + ' (CERES Pred)'] > ceres_thres[0]) & (df_pred[experiment + ' (CERES Pred)'] < ceres_thres[1])) | (df_pred['log10Pcomb'] < p_val_thres))][['gene', experiment + ' (CERES Pred)', experiment + ' (Z-Score)']]
+    df_return = df_return.rename(columns={'gene': 'Gene', experiment + ' (CERES Pred)': 'CERES Pred', experiment + ' (Z-Score)': 'Z-Score'})
+    df_return = df_return.round(3)
+    select_genes = df_return['Gene'].values.tolist()
+    df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'depmap', 'gene'))
+
+    return fig, dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True, size='sm'), False, False, select_genes
 
 #-----------------------------------------------------------GENES PAGE CALLBACKS------------------------------------------------------------------------------
 
@@ -1448,9 +2422,8 @@ def update_gene_table(total_data, z_score_data, total_fig, z_score_fig, pred_dat
           Input('dummy_div_genes', 'children'),)
 def update_dropdown(aux):
 
-    df_clusters = pd.read_csv('./data/feat_summary_varExp_filtered_class.csv')
-    landmark_genes = sorted(list(set(df_clusters['feature'].tolist())))
-    landmark_genes.insert(0, 'ALL')
+    landmark_genes = [{'label': 'louvain_' + str(i), 'value': i} for i in range(44)]
+    landmark_genes.insert(0, {'label': 'ALL', 'value': 'ALL'})
 
     return landmark_genes, landmark_genes, landmark_genes
 
@@ -1467,7 +2440,7 @@ def update_gene_list_1(community):
                 gene_list = pickle.load(f)
             return gene_list, gene_list
         else:
-            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            clust = modularity[community]
             
             clust2 = clust.copy()
             for i,j in G.edges(clust):
@@ -1489,7 +2462,7 @@ def update_gene_list_1(community):
                 gene_list = pickle.load(f)
             return gene_list, gene_list
         else:
-            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            clust = modularity[community]
             
             clust2 = clust.copy()
             for i,j in G.edges(clust):
@@ -1510,7 +2483,7 @@ def update_gene_list_1(community):
                 gene_list = pickle.load(f)
             return gene_list
         else:
-            clust = df_clusters[df_clusters['feature'] == community]['target'].tolist()
+            clust = modularity[community]
             
             clust2 = clust.copy()
             for i,j in G.edges(clust):
@@ -1557,9 +2530,8 @@ def run_inference(gene2visualize, pred_data, experiments):
                                  name=e + ' (' + gene2visualize + ')'))
     fig.update_layout(barmode='overlay')
     fig.update_layout(plot_bgcolor='white')
-    fig.update_xaxes(range=[-3, 1.5])
     fig.update_layout(
-    title_text = 'Distribution of all CERES Scores for ' + gene2visualize,
+    title_text = '<b>Distribution of all CERES Scores for ' + gene2visualize + '</b>',
     title_x = 0.5,
     xaxis_title="CERES Score of " + gene2visualize,
     yaxis_title="Number of Cell lines",
@@ -1606,9 +2578,8 @@ def run_inference(gene2visualize, pred_data, experiments):
                                  name=e + ' (' + gene2visualize + ')'))
     fig.update_layout(barmode='overlay')
     fig.update_layout(plot_bgcolor='white')
-    fig.update_xaxes(range=[-3, 1.5])
     fig.update_layout(
-    title_text = 'Distribution of all CERES Scores for ' + gene2visualize,
+    title_text = '<b>Distribution of all CERES Scores for ' + gene2visualize + '</b>',
     title_x = 0.5,
     xaxis_title="CERES Score of " + gene2visualize,
     yaxis_title="Number of Cell lines",
@@ -1648,54 +2619,6 @@ def update_gene_1_links(gene):
         tumor_portal_link = create_gene_link(gene, 'tumor_portal', 'Tumor Portal: ' + str(gene))
         ncbi_link = create_gene_link(gene, 'ncbi', 'NCBI: ' + str(gene))
         return [depmap_link], [uniprot_link], [tumor_portal_link], [ncbi_link]
-
-@app.callback(Output('pie_chart_graph', 'figure'),
-              Input('pie_chart_slider', 'value'),
-              State('df_pred-store', 'data'),
-              prevent_initial_call = True)
-def run_pie_chart_output(threshold, pred_data):
-    df_pred = pd.DataFrame(pred_data)
-    df_pred_sig_genes = df_pred[df_pred['ceres_pred'] <= threshold]
-    df_pred_unsig_genes = df_pred[df_pred['ceres_pred'] > threshold]
-
-    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "pie"}, {"type": "pie"}]])
-
-    labels = df_pred_sig_genes['gene_category'].value_counts().index
-    values = df_pred_sig_genes['gene_category'].value_counts().values
-    fig.add_trace(trace=go.Pie(labels=labels, values=values, name='significant genes', title='Significant Genes'),row=1,col=1)
-
-    labels = df_pred_unsig_genes['gene_category'].value_counts().index
-    values = df_pred_unsig_genes['gene_category'].value_counts().values
-    fig.add_trace(trace=go.Pie(labels=labels, values=values, name='insignificant genes', title='Insignificant Genes'),row=1,col=2)
-    return fig
-
-@app.callback(Output('z_score_plots_all', 'figure'),
-              Input('average_slider', 'value'),
-              Input('prediction_slider', 'value'),
-              Input('z_score_slider', 'value'),
-              State('df_pred-store', 'data'),
-              prevent_initial_call = True)
-def run_z_score_graphs_all(avg, pred, z_score, pred_data):
-    df_pred = pd.DataFrame(pred_data)
-    df_pred_top = df_pred[df_pred['ceres_pred'] <= pred]
-    df_pred_top = df_pred_top[df_pred_top['avg'] >= avg]
-    df_pred_top = df_pred_top[df_pred_top['z_score'] < z_score]
-    df_pred_top = df_pred_top.sort_values(by=['z_score'], ascending =False)
-    gene2visualize = df_pred_top.iloc[-10:]['gene'].tolist()
-    x_pred = df_pred_top.iloc[-10:]['ceres_pred'].tolist()
-    x_avg = df_pred_top.iloc[-10:]['avg'].tolist()
-    dm_data_sub = dm_data[gene2visualize]
-    fig = make_subplots(rows=5, cols=2)
-    g=9
-    for i in range (1,6):
-        for j in range (1,3):
-            print(dm_data_sub[gene2visualize[g]])
-            print(gene2visualize[g])
-            fig.add_trace(go.Histogram(x = dm_data_sub[gene2visualize[g]], name=gene2visualize[g]), row=i, col=j)
-            fig.add_shape(go.layout.Shape(type='line', xref='x', x0=x_pred[g], y0=0, x1=x_pred[g], y1=100, line=dict(color="Red", width=2, dash="dashdot",)), row=i, col=j)
-            fig.add_shape(go.layout.Shape(type='line', xref='x', x0=x_avg[g], y0=0, x1=x_avg[g], y1=100, line=dict(color="Green", width=2, dash="dashdot",)), row=i, col=j)
-            g-=1
-    return fig
 
 @app.callback(Output('pairwise_gene_comp','figure'),
               Input('gene-list-dropdown_3', 'value'),
@@ -1761,7 +2684,7 @@ def run_pairwise_comp(gene_1, gene_2, color_by, category_by, experiments, pred_d
                                  line=dict(color='red', width=1.5, dash='dot')))
 
         fig.update_layout(
-            title_text = 'Pairwise CERES score comparison between ' + gene_1 + ' and ' + gene_2,
+            title_text = '<b>Pairwise CERES Score comparison between ' + gene_1 + ' and ' + gene_2 + '</b>',
             title_x = 0.5,
             xaxis_title=gene_1 + ' (CERES Score)',
             yaxis_title=gene_2 + ' (CERES Score)',
@@ -1780,6 +2703,8 @@ def run_pairwise_comp(gene_1, gene_2, color_by, category_by, experiments, pred_d
             showgrid=True,
             gridwidth=1,
             gridcolor='lightgray'))
+
+        fig.update_layout(height=550)
 
         return fig
 
@@ -1806,7 +2731,7 @@ def run_pairwise_comp(gene_1, gene_2, color_by, category_by, experiments, pred_d
             fig.add_trace(go.Scatter(x=gene_1_preds, y=gene_2_preds, text=texts, mode='markers',
                                      marker=dict(
                                          color=color_by_dict[cat],
-                                         size=10,
+                                         size=5,
                                          opacity=0.7,
                                          line=dict(
                                              color='DarkSlateGray',
@@ -1858,7 +2783,7 @@ def run_pairwise_comp(gene_1, gene_2, color_by, category_by, experiments, pred_d
                                  name='Linear (all cell lines)'))
 
         fig.update_layout(
-            title_text = 'Pairwise CERES score comparison between ' + gene_1 + ' and ' + gene_2,
+            title_text = '<b>Pairwise CERES Score comparison between ' + gene_1 + ' and ' + gene_2 + '</b>',
             title_x = 0.5,
             xaxis_title=gene_1 + ' (CERES Score)',
             yaxis_title=gene_2 + ' (CERES Score)',
@@ -1878,6 +2803,8 @@ def run_pairwise_comp(gene_1, gene_2, color_by, category_by, experiments, pred_d
             gridwidth=1,
             gridcolor='lightgray'))
 
+        fig.update_layout(height=550)
+
         return fig
 
 @app.callback(Output('select_category', 'options'),
@@ -1890,140 +2817,339 @@ def return_options(color_by):
     return [{'label': value, 'value': value} for value in values]
 
 @app.callback(Output('multi_gene_comp','figure'),
+              Output('multi_gene_comp_network', 'children'),
               Input('multi-gene-list-dropdown', 'value'),
+              Input('m_primary_color', 'value'),
+              Input('m_experiment_color', 'value'),
+              State('m_select_secondary_cat', 'value'),
+              Input('m_select_sub_cat', 'value'),
+              Input('m_secondary_color', 'value'),
               State('experiment_labels', 'data'),
-              State('df_pred-store', 'data'))
-def run_multiple_genes(gene_list, experiments, pred_data):
-    if gene_list is None or experiments is None or pred_data is None:
+              State('df_pred-store', 'data'),
+              prevent_inital_call=True)
+def run_multiple_genes(gene_list, primary_c, cmap, cat, sub_cat, secondary_c, experiments, pred_data):
+    if gene_list is None or experiments is None or pred_data is None or primary_c is None or cmap is None or cat is None or sub_cat is None or secondary_c is None:
         raise PreventUpdate
-    elif len(gene_list) < 2 or len(gene_list) > 10:
+    elif len(gene_list) < 2 or len(gene_list) > 6:
         raise PreventUpdate
     else:
         n = len(gene_list)
-        fig = make_subplots(rows=n, cols=n, shared_yaxes=True, shared_xaxes=True, horizontal_spacing=0.01)
+        fig = make_subplots(rows=n, cols=n, shared_yaxes=True, shared_xaxes=True, horizontal_spacing=0.01, vertical_spacing=0.01)
         df_pred = pd.DataFrame(pred_data)
         dm_data_small = dm_data.dropna()
         dm_data_small = dm_data_small.merge(df_sample_data, how='left', right_on='DepMap_ID', left_index=True)
     
-        color_list = ['#7f00ff', '#ff7f00', '#0000ff', '#ffff00', '#007fff', '#7fff00', '#00ffff', '#00ff00']
-        color_dict = dict(zip(experiments, color_list))
+        cmaph = plt.cm.get_cmap(cmap, len(experiments))
+        cmaph = [(cmaph(i)[0], cmaph(i)[1], cmaph(i)[2], cmaph(i)[3])  for i in range(len(experiments))]
+        cmaph = [mpl.colors.rgb2hex(i, keep_alpha=False) for i in cmaph]
+        color_dict = dict(zip(experiments, cmaph))
+        
+        symbol_list = ['diamond', 'diamond', 'diamond']
+        symbol_dict = dict(zip(experiments, iter(symbol_list)))
     
         for i in range (1,n+1):
-            fig.update_yaxes(title_text=gene_list[i-1], row=i, col=1)
+            fig.update_yaxes(title_text="<b>"+gene_list[i-1]+"</b>", row=i, col=1)
             for j in range (1,n+1):
-                rg=LinearRegression()
-                rg_res = rg.fit(np.array(dm_data_small[gene_list[j-1]]).reshape(-1,1), dm_data_small[gene_list[i-1]])
-                Y = rg_res.predict(np.array(dm_data_small[gene_list[j-1]]).reshape(-1,1))
-            
-                fig.add_trace(go.Scatter(x=dm_data_small[gene_list[j-1]], 
-                                         y=dm_data_small[gene_list[i-1]],
-                                         text=dm_data_small['stripped_cell_line_name'],
-                                         mode='markers',
-                marker=dict(
-                size=2,
-                color = 'lightgrey',
-                opacity = 1,line=dict(
-                    color='DarkSlateGray',
-                    width=0.2
-                ))
-                ), row=i, col=j)
+                if gene_list[j-1] == gene_list[i-1]:
+                    a = dm_data_small[gene_list[j-1]]
+                    
+                    Q1a = np.percentile(a, 25, method='midpoint')
+                    Q3a = np.percentile(a, 75, method='midpoint')
+                    IQRa = Q3a - Q1a
+                    
+                    uppera=Q3a+1.5*IQRa
+                    lowera=Q1a-1.5*IQRa
+                    
+                    fig2 = ff.create_distplot([dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                             (dm_data_small[gene_list[j-1]]<=uppera)][gene_list[j-1]].values],
+                                              [gene_list[j-1]],
+                                              histnorm='probability density',
+                                              bin_size = 0.1,
+                                              show_curve = True,
+                                              show_rug = False)
+                    
+                    fig.add_trace(go.Histogram(fig2['data'][0],
+                           marker_color='cyan', showlegend=False), row=i, col=j)
+                    
+                    fig.add_trace(go.Scatter(fig2['data'][1],
+                         line=dict(color='blue', width=4),
+                        showlegend=False), row=i, col=j)
+                    
+                    if i == n:
+                        fig.update_xaxes(title_text="<b>"+gene_list[j-1]+"</b>", row=i, col=j)
+                    
+                if not gene_list[j-1] == gene_list[i-1]:
+                    
+                    rg=LinearRegression()
+                    a = dm_data_small[gene_list[j-1]]
+                    b = dm_data_small[gene_list[i-1]]
 
-                for e in experiments:
-            
-                    gene_1_pred = df_pred[df_pred['gene'] == [gene_list[j-1]][0]][e + ' (CERES Pred)'].values
-                    gene_2_pred = df_pred[df_pred['gene'] == [gene_list[i-1]][0]][e + ' (CERES Pred)'].values
-            
-                    fig.add_trace(go.Scatter(x=gene_1_pred, y=gene_2_pred, mode='markers', 
-                    marker=dict(
-                    color=color_dict[e],
-                    size=10,
-                        gradient=dict(
-                        color=color_dict[e],
-                        type="radial",
-                    ),
-                    opacity = 0.4,
-                    line=dict(
-                        color='DarkSlateGray',
-                        width=0.2
-                    )), name=e), row=i, col=j)
-            
-                    fig.add_trace(go.Scatter(x=gene_1_pred, y=gene_2_pred, mode='markers', 
-                    marker=dict(
-                    color=color_dict[e],
-                    size=4,
-                    opacity = 1,
-                    line=dict(
-                        color='DarkSlateGray',
-                        width=0.2
-                    )), name=e), row=i, col=j)
-            
-                fig.add_trace(go.Scatter(x=dm_data_small[gene_list[j-1]], y=Y, 
-                                         mode='lines',
-                                         opacity=0.8,
-                                         line=dict(color='red', width=1.5, dash='dot')), row=i, col=j)
-            
-                if i == n:
-                    fig.update_xaxes(title_text=gene_list[j-1], row=i, col=j)
+                    Q1a = np.percentile(a, 25, method='midpoint')
+                    Q3a = np.percentile(a, 75, method='midpoint')
+                    IQRa = Q3a - Q1a
 
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=0.8)
-        fig.update_xaxes(zeroline=True, zerolinecolor='black', zerolinewidth=0.8)
-        fig.update_layout(showlegend=False)
+                    Q1b = np.percentile(b, 25, method='midpoint')
+                    Q3b = np.percentile(b, 75, method='midpoint')
+                    IQRb = Q3b - Q1b
+
+                    uppera=Q3a+1.5*IQRa
+                    lowera=Q1a-1.5*IQRa
+
+                    upperb=Q3b+1.5*IQRb
+                    lowerb=Q1b-1.5*IQRb
+                    
+                    if i > j:
+                        if i == 2:
+                            show = True
+                        else:
+                            show = False
+                            
+                        r, _ = pearsonr(dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb)][gene_list[j-1]], 
+                                        dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb)][gene_list[i-1]])
+
+                        fig.add_trace(go.Scatter(x=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb)
+                                                                ][gene_list[j-1]], 
+                                                 y=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb)][gene_list[i-1]],
+                                                 text=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb)]['stripped_cell_line_name'],
+                                                 mode='markers',
+                        marker=dict(
+                        size=10,
+                        color = primary_c,
+                        opacity = 0.4,line=dict(
+                            color=primary_c,
+                            width=0.2
+                        )),
+                        name = "DepMap: All Cells",
+                        showlegend=show,
+                        ), 
+                        row=i, col=j)
+                        
+                        fig.add_annotation(text="<b>r = {0:.2f}</b>".format(r),
+                              xref="paper", yref="paper",
+                              x=Q3a, 
+                              y=Q3b+2.5*IQRb, 
+                              showarrow=False, 
+                              font=dict(size=23, color='red'), 
+                              row=i, col=j)
+
+                        for e in experiments:
+
+                            gene_1_pred = df_pred[df_pred['gene'] == [gene_list[j-1]][0]][e + ' (CERES Pred)'].values
+                            gene_2_pred = df_pred[df_pred['gene'] == [gene_list[i-1]][0]][e + ' (CERES Pred)'].values
+
+                            fig.add_trace(go.Scatter(x=gene_1_pred, y=gene_2_pred, mode='markers', 
+                            marker=dict(
+                            symbol=symbol_dict[e],
+                            color=color_dict[e],
+                            size=10,
+                            opacity = 1,
+                            line=dict(
+                                color='black',
+                                width=1
+                            )), name=e + ' (CERES Prediction)',
+                            showlegend=show), row=i, col=j)
+                            
+                        if i == n:
+                            fig.update_xaxes(title_text="<b>"+gene_list[j-1]+"</b>", row=i, col=j)
+                            
+                    if i < j:
+                        if j == 2:
+                            show = True
+                        else:
+                            show = False
+
+                        r, _ = pearsonr(dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb) &
+                                                                 (dm_data_small[cat]==sub_cat)][gene_list[j-1]], 
+                                        dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb) &
+                                                                 (dm_data_small[cat]==sub_cat)][gene_list[i-1]])
+                        
+                        fig.add_trace(go.Scatter(x=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb) &
+                                                                 (dm_data_small[cat]==sub_cat)][gene_list[j-1]], 
+                                                 y=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb) &
+                                                                 (dm_data_small[cat]==sub_cat)][gene_list[i-1]],
+                                                 text=dm_data_small[(dm_data_small[gene_list[j-1]]>=lowera) &
+                                                                 (dm_data_small[gene_list[j-1]]<=uppera) &
+                                                                 (dm_data_small[gene_list[i-1]]>=lowerb) &
+                                                                 (dm_data_small[gene_list[i-1]]<=upperb) &
+                                                                 (dm_data_small[cat]==sub_cat)]['stripped_cell_line_name'],
+                                                 mode='markers',
+                        marker=dict(
+                        size=10,
+                        color = secondary_c,
+                        opacity = 0.4,line=dict(
+                            color=secondary_c,
+                            width=0.2
+                        )),
+                        name = "DepMap: " + sub_cat,
+                        showlegend=show,
+                        ), row=i, col=j)
+
+                        fig.add_annotation(text="<b>r = {0:.2f}</b>".format(r),
+                            xref="paper", yref="paper",
+                            x=Q3a, 
+                            y=Q3b+2.5*IQRb, 
+                            showarrow=False, 
+                            font=dict(size=23, color='red'), 
+                            row=i, col=j)
+
+                        for e in experiments:
+
+                            gene_1_pred = df_pred[df_pred['gene'] == [gene_list[j-1]][0]][e + ' (CERES Pred)'].values
+                            gene_2_pred = df_pred[df_pred['gene'] == [gene_list[i-1]][0]][e + ' (CERES Pred)'].values
+
+                            fig.add_trace(go.Scatter(x=gene_1_pred, y=gene_2_pred, mode='markers', 
+                            marker=dict(
+                            symbol=symbol_dict[e],
+                            color=color_dict[e],
+                            size=10,
+                            opacity = 1,
+                            line=dict(
+                                color='black',
+                                width=1
+                            )), name=e + " (CERES Prediction)",
+                            showlegend = False), 
+                            row=i, col=j)
+
+                        if i == n:
+                            fig.update_xaxes(title_text="<b>"+gene_list[j-1]+"</b>", row=i, col=j)
+
+        fig.update_layout(showlegend=True,
+                          plot_bgcolor='white',
+                          title_text='<b>Multiple Pairwise Genes Regression Analysis</b>',
+                          font_family = 'Arial',
+                          font_color = 'black',
+                          font_size=22,
+                          title_x=0.5,
+                          #legend_title="Legend",
+                          legend = dict(font=dict(size=20, family="Arial", color='black'), orientation='h', yanchor='top', itemwidth=30))
+        fig.update_yaxes(zeroline=True, zerolinecolor='lightgray', zerolinewidth=0.8,
+                        showline=True, linewidth=1.5, linecolor='black', mirror=True,
+                        tickfont_family="Arial Black", tickfont=dict(size=16))
+        fig.update_xaxes(zeroline=True, zerolinecolor='lightgray', zerolinewidth=0.8,
+                        showline=True, linewidth=1.5, linecolor='black', mirror=True,
+                        tickfont_family="Arial Black", tickfont=dict(size=16))
         fig.update_xaxes(dict(
             showgrid=True,
-            gridwidth=1,
+            gridwidth=0.8,
             gridcolor='lightgray'),)
         fig.update_yaxes(dict(
             showgrid=True,
-            gridwidth=1,
-            gridcolor='lightgray'))
-        fig['layout'].update(height=1000)
+            gridwidth=0.8,
+            gridcolor='lightgray'),)
+        #fig['layout'].update(height=1000)
+        
+        
+        clust = gene_list.copy()
+        for c,j in G.edges(gene_list):
+            clust.append(j)
+                
+        clust = list(set(clust))
 
-        return fig
+        subgraph = nx.Graph()
+        subgraph.add_nodes_from(clust)
+        subgraph.add_edges_from(G.edges(gene_list))
+        sizes_dict = nx.degree_centrality(subgraph)
+        low_s = min([v for k, v in sizes_dict.items()])
+        high_s = max([v for k, v in sizes_dict.items()])
+        map_data = 'mapData(size, ' + str(low_s) + ', ' + str(high_s) + ', 20, 100)'
 
+        n_colors = ['red' if i in gene_list else 'blue' for i in clust]
+        n_class_dict = dict(zip(clust, n_colors))
+        
+        nodes = [
+                {
+                    'data': {'id': label, 'label': label, 'size': sizes_dict[label]},
+                    'classes': n_class_dict[label],
+                }
+                for label in clust
+            ]
 
-@app.callback(Output('output_z_score', 'figure'),
-              Input('choose_experiment_3', 'value'),
-              Input('gene_cat_checklist_2', 'value'),
-              State('df_pred-store', 'data'),
-              prevent_initial_call = True)
-def update_z_score_graph(experiment, categories, pred_data):
-    if experiment is None or categories is None or pred_data is None:
-        return dash.no_update
-    else:
-        df_pred = pd.DataFrame(pred_data)
-        all_colors = {}
-        all_colors.update(mcolors.TABLEAU_COLORS)
-        color_dict = dict(zip(["conditional essential", "common nonessential", "common essential"], mcolors.TABLEAU_COLORS))
-        fig = go.Figure()
-        for cat in categories:
-            fig.add_trace(go.Scatter(x=df_pred[df_pred['gene_category']==cat][experiment + ' (CERES Pred)'].values, 
-                         y=df_pred[df_pred['gene_category']==cat][experiment + ' (Z-Score)'].values,
-            mode='markers',
-            marker=dict(
-            color=all_colors[color_dict[cat]],
-            size=6,
-            opacity = 0.5,
-            line=dict(
-                color='DarkSlateGray',
-                width=1
-            )),
-            customdata=df_pred[df_pred['gene_category']==cat]['gene'].values,
-            hovertemplate='gene:%{customdata}',
-            name=cat))
-        fig.update_layout(xaxis_range=[-2.2,1])
-        fig.update_layout(xaxis_title="CERES Score Prediction", yaxis_title="Z-Score Prediction")
-        return fig
+        edges = [
+            {
+                'data': {'source': source, 'target': target},
+            }
+            for source, target in G.edges(gene_list)
+        ]
 
-@app.callback(Output('select_experiment', 'options'),
-              Output('select_experiment_cluster', 'options'),
-              State('experiment_labels', 'data'),
-              Input('dummy_div_genes', 'children'),)
-def update_cell_line_dropdown(experiments, aux):
-    if experiments is None:
-        return [{'label': value, 'value': value} for value in dm_data.index.tolist()], None
-    elif experiments is not None:
-        return [{'label': value, 'value': value} for value in dm_data.index.tolist()], [{'label': value, 'value': value} for value in experiments]
+        elements = nodes + edges
+
+        group_select_dict = {
+                        'selector': 'node',
+                        'style': {
+                            'content': 'data(label)',
+                            'width': map_data,
+                            'height': map_data,
+                        }
+                    }
+        
+        network =  [html.Br(),
+                    dbc.Row([
+                        dbc.Col(width=3),
+                        dbc.Col(dbc.Label("Gene Network", style={'text-align': 'center', 'font-size': '200%', "font-weight": "bold", 'font-family': 'Arial'}), width=6),
+                        dbc.Col(width=3),
+                    ]),
+                    html.Br(),
+                    cyto.Cytoscape(
+                    id='cytoscape-layout-2',
+                    elements=elements,
+                    style={'width': '90%', 'height': '700px'},
+                    layout={
+                        'name': 'cose',
+                        'animate': True
+                    },
+                    stylesheet=[
+                        # Group selectors
+                        group_select_dict,
+
+                        # Class selectors
+                        {
+                            'selector': '.red',
+                            'style': {
+                                'background-color': 'red',
+                                'line-color': 'magenta'
+                            }
+                        },
+                        {
+                            'selector': '.blue',
+                            'style': {
+                                'background-color': 'lightblue',
+                                'line-color': 'grey'
+                            }
+                        }
+                    ]
+                )]
+
+        return fig, network
+
+#----------------------------------------------------------------------Community Page Callbacks---------------------------------------
+
 
 @app.callback(Output('cell-line-or-experiment', 'data'),
               Input('select_experiment', 'value'),
@@ -2036,32 +3162,58 @@ def update_choice(cell_line, experiment):
     elif trigger_id == 'select_experiment_cluster':
         return 'experiment'
 
-@app.callback(Output('network_graph_1', 'figure'),
+@app.callback(Output('network_graph_1', 'children'),
               Output('louvain-gene-table', 'children'),
               Input('select_community', 'value'),
               Input('cell-line-or-experiment', 'data'),
               State('select_experiment', 'value'),
+              State('select_experiment', 'options'),
               State('select_experiment_cluster', 'value'),
               State('df_pred-store', 'data'),
               Input('select_network_layout', 'value'),
               Input('sig_genes_threshold', 'value'),
               Input('z-score_threshold', 'value'),
-              prevent_initial_call = True)
-def create_network_graph_1(feature, choice, cell_line, experiment, pred_data, layout, c_threshold, z_threshold):
-    if feature is None or (cell_line is None and experiment is None):
+              Input('select_node_color_by', 'value'),
+              Input('select_node_colormap', 'value'),
+              Input('cres_threshold', 'value'),
+              Input('select_node_size_by', 'value'),
+              )
+def create_network_graph_1(feature, choice, cell_line, cell_line_options, 
+                           experiment, pred_data, layout, c_threshold, z_threshold, 
+                           color_by, cmap, cres, size_by):
+    if feature is None or (cell_line is None and experiment is None) or layout is None or color_by is None or cmap is None or size_by is None:
         return dash.no_update
     else:
-        clust = df_clusters[df_clusters['feature'] == feature]['target'].tolist()
+        
+        if color_by == 'community':
+            n_colors_dict = {}        
+            cmaph = plt.cm.get_cmap(cmap, len(feature))
+            cmaph = [(255*cmaph(i)[0], 255*cmaph(i)[1], 255*cmaph(i)[2])  for i in range(len(feature))]
+        
+        clust = []
+        
+        for i in range(len(feature)):
+            clust1 = []
+            clust1.extend(modularity[i])
+            clust.extend(modularity[i])
+            
+            if color_by == 'community':
+                
+                for c,j in G.edges(clust1):
+                    clust1.append(j)
+                    
+                n_colors_dict.update({a: cmaph[i] for a in clust1})
         
         clust2 = clust.copy()
-        for i,j in G.edges(clust):
+        for c,j in G.edges(clust):
             clust2.append(j)
+                
         clust2 = list(set(clust2))
-
+        
         subgraph = nx.Graph()
         subgraph.add_nodes_from(clust2)
         subgraph.add_edges_from(G.edges(clust))
-
+            
         if choice == 'cell line':
 
             df_temp = dm_data.copy()
@@ -2086,10 +3238,8 @@ def create_network_graph_1(feature, choice, cell_line, experiment, pred_data, la
             df_return = df_return.round(3)
 
             sig_genes = df_return[(df_return['CERES Score'] < c_threshold) & (abs(df_return['Z-Score']) >= z_threshold)]['Gene'].values.tolist()
-            logging.warning(sig_genes)
-            subtitle = cell_line
-
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
+            cell_line_label = [x['label'] for x in cell_line_options if x['value'] == cell_line][0]
+            subtitle = cell_line_label
 
         elif choice == 'experiment':
 
@@ -2103,153 +3253,215 @@ def create_network_graph_1(feature, choice, cell_line, experiment, pred_data, la
             df_return = df_return.round(3)
 
             sig_genes = df_return[(df_return['CERES Pred'] < c_threshold) & (abs(df_return['Z-Score']) >= z_threshold)]['Gene'].values.tolist()
-            logging.warning(sig_genes)
             subtitle = experiment + ' (CERES Prediction)'
+        
+        n_colors = ['red' if i in sig_genes else 'blue' for i in clust2]
+        n_class_dict = dict(zip(clust2, n_colors))
+        
+        e_colors = ['red' if source in sig_genes and target in sig_genes else None for source, target in G.edges(clust)]
+        e_class_dict = dict(zip(G.edges(clust), e_colors))
+        
+        if size_by == 'ceres_score':
+            if choice == 'cell line':
+                sizes = [df_return[df_return['Gene'] == i]['CERES Score'].values.tolist()[0] if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+                sizes_dict = dict(zip(clust2, sizes))
+            elif choice == 'experiment':
+                sizes = [df_return[df_return['Gene'] == i]['CERES Pred'].values.tolist()[0] if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+                sizes_dict = dict(zip(clust2, sizes))
+        elif size_by == 'z_score':
+            sizes = [abs(df_return[df_return['Gene'] == i]['Z-Score'].values.tolist()[0]) if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+            sizes_dict = dict(zip(clust2, sizes))
+        elif size_by == 'degree_centrality':
+            sizes_dict = nx.degree_centrality(subgraph)
+        elif size_by == 'closeness_centrality':
+            sizes_dict = nx.closeness_centrality(subgraph)
+        elif size_by == 'betweenness_centrality':
+            sizes_dict = nx.betweenness_centrality(subgraph)
+                    
+        if color_by == 'ceres_score':
+            if choice == 'cell line':
+                n_colors = [df_return[df_return['Gene'] == i]['CERES Score'].values.tolist()[0] if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+                n_colors_dict = dict(zip(clust2, n_colors))
+            elif choice == 'experiment':
+                n_colors = [df_return[df_return['Gene'] == i]['CERES Pred'].values.tolist()[0] if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+                n_colors_dict = dict(zip(clust2, n_colors))
+        elif color_by == 'z_score':
+            n_colors = [abs(df_return[df_return['Gene'] == i]['Z-Score'].values.tolist()[0]) if i in df_return['Gene'].values.tolist() else 0 for i in clust2]
+            n_colors_dict = dict(zip(clust2, n_colors))
+        elif color_by == 'degree_centrality':
+            n_colors_dict = nx.degree_centrality(subgraph)
+        elif color_by == 'closeness_centrality':
+            n_colors_dict = nx.closeness_centrality(subgraph)
+        elif color_by == 'betweenness_centrality':
+            n_colors_dict = nx.betweenness_centrality(subgraph)
+        
+        if color_by == 'ceres_score' or color_by == 'z_score':
+            
+            test_c = np.linspace(min(n_colors)-0.1, max(n_colors)+0.1, cres)
+            cmaph = plt.cm.get_cmap(cmap, cres)
+            cmaph = [(255*cmaph(i)[0], 255*cmaph(i)[1], 255*cmaph(i)[2])  for i in range(cres)]
 
-            df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
+            def color_this(fl, breakpoints=test_c, cat=cmaph):
+                return cat[bisect(breakpoints, fl)]
+                    
+            nodes = [
+                {
+                    'data': {'id': label, 'label': label, 'size': sizes_dict[label], 'color': color_this(n_colors_dict[label])},
+                    'classes': n_class_dict[label],
+                }
+                for label in clust2
+            ]
+            
+        elif color_by == 'degree_centrality' or color_by == 'betweenness_centrality' or color_by == 'closeness_centrality':
+            
+            low = min([v for k, v in n_colors_dict.items()])
+            high = max([v for k, v in n_colors_dict.items()])
+            percent_10 = high - low / 10
+            test_c = np.linspace(low-percent_10, high+percent_10, cres)
+            cmaph = plt.cm.get_cmap(cmap, cres)
+            cmaph = [(255*cmaph(i)[0], 255*cmaph(i)[1], 255*cmaph(i)[2])  for i in range(cres)]
 
-        subgraph_2 = subgraph.subgraph(sig_genes)
+            def color_this(fl, breakpoints=test_c, cat=cmaph):
+                return cat[bisect(breakpoints, fl)]
+                    
+            nodes = [
+                {
+                    'data': {'id': label, 'label': label, 'size': sizes_dict[label], 'color': color_this(n_colors_dict[label])},
+                    'classes': n_class_dict[label],
+                }
+                for label in clust2
+            ]
+            
+        elif color_by == 'community':
+            
+            nodes = [
+                {
+                    'data': {'id': label, 'label': label, 'size': sizes_dict[label], 'color': n_colors_dict[label]},
+                    'classes': n_class_dict[label],
+                }
+                for label in clust2
+            ]
 
-        subgraph_3 = nx.Graph()
-        subgraph_3.add_nodes_from(clust2)
-        subgraph_3.add_edges_from(subgraph_2.edges(sig_genes))
+        edges = [
+            {'data': {'source': source, 'target': target},
+             'classes': e_class_dict[(source, target)]
+            }
+            for source, target in G.edges(clust)
+        ]
 
-        pos = nx.spring_layout(subgraph)
+        elements = nodes + edges
+        
+        if size_by == 'ceres_score':
+            group_select_dict = {
+                            'selector': 'node',
+                            'style': {
+                                'content': 'data(label)',
+                                'width': 'mapData(size,  -3, 1, 100, 20)',
+                                'height': 'mapData(size,  -3, 1, 100, 20)',
+                                'background-color': 'data(color)',
+                            }
+                        }
+                
+        elif size_by == 'z_score':
+            group_select_dict = {
+                            'selector': 'node',
+                            'style': {
+                                'content': 'data(label)',
+                                'width': 'mapData(size,  0, 2, 20, 100)',
+                                'height': 'mapData(size,  0, 2, 20, 100)',
+                                'background-color': 'data(color)',
+                            }
+                        }
+                
+        elif size_by == 'degree_centrality' or size_by == 'betweenness_centrality' or size_by == 'closeness_centrality':
+            low_s = min([v for k, v in sizes_dict.items()])
+            high_s = max([v for k, v in sizes_dict.items()])
+            map_data = 'mapData(size, ' + str(low_s) + ', ' + str(high_s) + ', 20, 100)'
+            group_select_dict = {
+                            'selector': 'node',
+                            'style': {
+                                'content': 'data(label)',
+                                'width': map_data,
+                                'height': map_data,
+                                'background-color': 'data(color)',
+                            }
+                        }
 
-        if layout == 'spring':
-            pos = nx.spring_layout(subgraph)
-        elif layout == 'circular':
-            pos = nx.circular_layout(subgraph)
-        elif layout == 'random':
-            pos = nx.random_layout(subgraph)
-        elif layout == 'spectral':
-            pos =  nx.spectral_layout(subgraph)
-        elif layout == 'fruchterman_reingold':
-            pos = nx.fruchterman_reingold_layout(subgraph_3)
+        network =  [html.Br(),
+                    dbc.Row([
+                        dbc.Col(width=2),
+                        dbc.Col(dbc.Label("Network Topology of Selected Communities", style={'text-align': 'center', 'font-size': '150%', "font-weight": "bold", 'font-family': 'Arial'}), width=9),
+                        dbc.Col(width=1),
+                    ]),
+                    html.Br(),
+                    cyto.Cytoscape(
+                    id='cytoscape-layout-2',
+                    elements=elements,
+                    style={'width': '100%', 'height': '500px'},
+                    layout={
+                        'name': layout,
+                        'animate': True
+                    },
+                    stylesheet=[
+                        # Group selectors
+                        group_select_dict,
 
-        fig=go.Figure()
+                        # Class selectors
+                        #{
+                        #    'selector': '.red',
+                        #    'style': {
+                        #        'background-color': 'magenta',
+                        #        'line-color': 'red'
+                        #    }
+                        #},
+                        #{
+                        #    'selector': '.blue',
+                        #    'style': {
+                        #        'background-color': 'lightblue',
+                        #        'line-color': 'grey'
+                        #    }
+                        #}
+                    ]
+                )]
 
-        Xv=[pos[k][0] for k in clust2]
-        Yv=[pos[k][1] for k in clust2]
-        Xed=[]
-        Yed=[]
+        df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
 
-        for edge in subgraph.edges(clust2):
-            Xed+=[pos[edge[0]][0],pos[edge[1]][0], None]
-            Yed+=[pos[edge[0]][1],pos[edge[1]][1], None]
-
-        trace1=go.Scatter(x=Xed,
-                    y=Yed,
-                    mode='lines',
-                    line=dict(color='gray', width=0.5),
-                    hoverinfo='none',
-                    opacity=0.5,
-                    name='Background Edges'
-                    )
-        trace2=go.Scatter(x=Xv,
-                    y=Yv,
-                    mode='markers',
-                    name='Insignificant Gene Effect',
-                    marker=dict(symbol='circle',
-                                    size=9,
-                                    color='lightblue',
-                                    line=dict(color='rgb(50,50,50)', width=0.5)
-                                    ),
-                    text=clust2,
-                    hoverinfo='text'
-                    )
-
-        fig.add_trace(trace1)
-        fig.add_trace(trace2)
-
-        Xv=[pos[k][0] for k in sig_genes]
-        Yv=[pos[k][1] for k in sig_genes]
-        Xed=[]
-        Yed=[]
-
-        for edge in subgraph_3.edges(sig_genes):
-            Xed+=[pos[edge[0]][0],pos[edge[1]][0], None]
-            Yed+=[pos[edge[0]][1],pos[edge[1]][1], None]
-
-        trace3=go.Scatter(x=Xed,
-                    y=Yed,
-                    mode='lines',
-                    line=dict(color='red', 
-                            width=0.5),
-                    hoverinfo='none',
-                    name='Significant Edges'
-                    )
-        trace4=go.Scatter(x=Xv,
-                    y=Yv,
-                    mode='markers',
-                    name='Significant Gene Effect',
-                    marker=dict(symbol='circle',
-                                    size=12,
-                                    color='purple',
-                                    line=dict(color='rgb(50,50,50)', width=0.5)
-                                    ),
-                    text=sig_genes,
-                    hoverinfo='text'
-                    )
-
-        fig.add_trace(trace3)
-        fig.add_trace(trace4)
-
-        fig.update_layout(
-            title_text = 'Network Topology of Louvain Community with Landmark: ' + feature + ' <br>' + subtitle,
-            title_x=0.5,
-            legend_title="Legend",
-            legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-            plot_bgcolor='white',
-            showlegend=True
-            )
-
-        fig.update_yaxes(dict(zeroline=False, showgrid=False, showticklabels=False))
-        fig.update_xaxes(dict(zeroline=False, showgrid=False, showticklabels=False))
-        fig.update_xaxes(showticklabels=False)
-        #fig['layout'].update(height=900, width=900)
-
-        return fig, dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True)
+        return network, dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True, size='sm')
 
 @app.callback(Output('cluster_graph_1', 'figure'),
+              Output('cluster_feats_1', 'figure'),
               Output('select_cluster_2', 'options'),
-              Output('select_clust_feats_1', 'options'),
-              Output('select_clust_feats_2', 'options'),
-              Output('select_clust_feats_3', 'options'),
-              Output('select_clust_feats_4', 'options'),
               Input('select_community_2', 'value'),
-              Input('select_cluster_layout', 'value'))
-def create_cluster_graph(landmark, layout):
-    if landmark is None or layout is None:
+              Input('select_cluster_layout', 'value'),
+              Input('select_node_colormap_2', 'value'))
+def create_cluster_graph(landmark, layout, cmap):
+    if landmark is None or layout is None or cmap is None:
         return dash.no_update
     elif landmark is not None and layout is not None:
 
-        phate_op_key = "cluster_models/" + landmark.replace(' ', '_') + "_phate_op.pkl"
+        phate_op_key = "cluster_models/" + 'louvain_' + str(landmark) + "_phate_op.pkl"
         phate_op = pickle.load(return_s3_object(s3, s3_bucket_name, phate_op_key))
         
-        coords_key = "cluster_models/" + landmark.replace(' ', '_') + "_coords.npy"
+        coords_key = "cluster_models/" + 'louvain_' + str(landmark) + "_coords.npy"
         coords = np.load(return_s3_object(s3, s3_bucket_name, coords_key))
 
         clusters = phate.cluster.kmeans(phate_op, k=7)
         
-        cluster_cell_lines_key = "cluster_models/" + landmark.replace(' ', '_') + '_cell_lines.pkl'
+        cluster_cell_lines_key = "cluster_models/" + 'louvain_' + str(landmark) + '_cell_lines.pkl'
         cluster_cell_lines = pickle.load(return_s3_object(s3, s3_bucket_name, cluster_cell_lines_key))
 
         Y_phate_tsne = coords[int(layout[0])]
 
         fig = go.Figure()
 
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, title=layout[1:] + "2", showticklabels=True)
-        fig.update_xaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, title=layout[1:] + "1", showticklabels=True)
-
         unique = set(list(clusters))
-        color_by_list = ['#9edae5', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#c49c94', '#aec7e8', '#ffbb78', '#c5b0d5', '#ff9896', '#ff9896']
+        cmaph = plt.cm.get_cmap(cmap, len(unique))
         color_bys = unique
-        if len(color_by_list) < len(color_bys):
-            color_by_dict = dict(zip(color_bys, cycle(color_by_list)))
-        else:
-            color_by_dict = dict(zip(color_bys, color_by_list))
+        
+        cmaph = [(cmaph(i)[0], cmaph(i)[1], cmaph(i)[2], cmaph(i)[3])  for i in range(len(unique))]
+        cmaph = [mpl.colors.rgb2hex(i, keep_alpha=False) for i in cmaph]
+
+        color_by_dict = dict(zip(color_bys, cmaph))
 
         for clust in unique:
             fig.add_trace(go.Scatter(x=[row[0] for row in Y_phate_tsne[clusters==clust]], 
@@ -2257,8 +3469,7 @@ def create_cluster_graph(landmark, layout):
                                     mode='markers',
                                     marker=dict(
                                         color=color_by_dict[clust],
-                                        size=8,
-                                        opacity=0.7,
+                                        size=10,
                                         line=dict(
                                         color='DarkSlateGray',
                                         width=1
@@ -2267,24 +3478,83 @@ def create_cluster_graph(landmark, layout):
                                     hoverinfo='text',
                                     name = "cluster " + str(clust)))
         
+        fig.update_yaxes(zeroline=True, 
+                         zerolinecolor='rgb(211,211,211,0.8)', 
+                         zerolinewidth=0.7, 
+                         showgrid=False, 
+                         title="<b>" + layout[1:] + "2",
+                         tickfont_family="Arial Black", 
+                         tickfont=dict(size=18),
+                         showticklabels=False)
+        
+        fig.update_xaxes(zeroline=True, 
+                         zerolinecolor='rgb(211,211,211,0.8)', 
+                         zerolinewidth=0.7, 
+                         showgrid=False, 
+                         title="<b>" + layout[1:] + "1", 
+                         tickfont_family="Arial Black", 
+                         tickfont=dict(size=18),
+                         showticklabels=True)
+        
         fig.update_layout(
-        title_text = 'PHATE Clusters for Lovaiun Community: ' + landmark + '<br>' + layout[1:] + ' Projection',
+        plot_bgcolor='white',
+        title_text = '<b>PHATE Clusters for Louvain Community: ' + str(landmark) + '</b> <br>' + layout[1:] + ' Projection',
         title_x = 0.5,
-        legend_title="Legend",
-        legend = dict(font=dict(size=12), orientation='h', yanchor='top', y=-0.2),
-        margin=dict(t=80, b=80))
+        font_family = 'Arial',
+        font_color = 'black',
+        font_size=16,
+        legend = dict(font=dict(size=16, family="Arial", color="black"), orientation='h', yanchor='top', y=-0.1),
+        margin=dict(t=80, b=80),
+        height=700)
 
-        return fig, [{'label': "cluster " + str(value), 'value': value} for value in unique], [{'label': "cluster " + str(value), 'value': value} for value in unique], [{'label': "cluster " + str(value), 'value': value} for value in unique], [{'label': "cluster " + str(value), 'value': value} for value in unique], [{'label': "cluster " + str(value), 'value': value} for value in unique]
+        feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
+        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
+        
+        fig2 = make_subplots(rows=2, cols=4, x_title='<b>Feature Score')
 
-@app.callback(Output('select_cell_cluster_2', 'options'),
-              Output('select_experiment_cluster_2', 'options'),
-              State('experiment_labels', 'data'),
-              Input('dummy_div_genes', 'children'),)
-def update_cell_line_dropdown(experiments, aux):
-    if experiments is None:
-        return [{'label': value, 'value': value} for value in dm_data.index.tolist()], None
-    elif experiments is not None:
-        return [{'label': value, 'value': value} for value in dm_data.index.tolist()], [{'label': value, 'value': value} for value in experiments]
+        unique = ['0', '1', '2', '3', '4', '5', '6']
+        cmaph = plt.cm.get_cmap(cmap, len(unique))
+        
+        cmaph = [(cmaph(i)[0], cmaph(i)[1], cmaph(i)[2], cmaph(i)[3])  for i in range(len(unique))]
+        cmaph = [mpl.colors.rgb2hex(i, keep_alpha=False) for i in cmaph]
+
+        color_by_dict = dict(zip(unique, cmaph))
+        
+        clust_coord_dict = {'0': (1, 1), '1': (1, 2), '2': (1, 3), '3': (1, 4), '4': (2, 1), '5': (2, 2), '6': (2, 3)}
+
+        for clust in unique:
+            importance_dict = feature_dict[int(clust)]
+            feat_labels = list(importance_dict.keys())
+            importances = list(importance_dict.values())
+            importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
+            fig2.add_trace(go.Bar(
+                y=feat_labels,
+                x=importances,
+                name='cluster ' + clust,
+                orientation='h',
+                marker=dict(
+                    color=color_by_dict[clust],
+                    line=dict(
+                        color='black',
+                        width=0.2
+                        ),)
+                ), row = clust_coord_dict[clust][0], col = clust_coord_dict[clust][1])
+            fig2.update_yaxes(zeroline=True, zerolinecolor='black', zerolinewidth=2, 
+                        tickfont_family="Arial Black", tickfont=dict(size=12, color='black'),showgrid=False, showticklabels=True)
+            fig2.update_xaxes(zeroline=True, zerolinecolor='black', zerolinewidth=2, 
+                        tickfont_family="Arial Black", tickfont=dict(size=12, color='black'),showgrid=False, showticklabels=True)
+
+        fig2.update_layout(plot_bgcolor='white',
+                            height=700,
+                            title_text = '<b>Feature Importance Scores for Clusters of Louvain Community: ' + str(landmark),
+                            title_x = 0.5,
+                            font_family = 'Arial',
+                            font_color = 'black',
+                            font_size=16,
+                            legend = dict(font=dict(size=16, family="Arial", color="black")))
+        fig2.layout.annotations[0]["font"] = {'size': 20, 'family': 'Arial', 'color':'black'}
+        
+        return fig, fig2, [{'label': "cluster " + str(value), 'value': value} for value in unique]
 
 @app.callback(Output('cell-line-or-experiment-2', 'data'),
               Input('select_cell_cluster_2', 'value'),
@@ -2309,14 +3579,14 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
     if clust is None or (cell_line is None and experiment is None) or landmark is None:
         return dash.no_update
     else:
-        feature_key = "cluster_models/" + landmark.replace(' ', '_') + "_feat_importance_rf.pkl"
+        feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
         feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
         importance_dict = feature_dict[int(clust)]
         feat_labels = list(importance_dict.keys())
         importances = list(importance_dict.values())
         importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
 
-        cluster = df_clusters[df_clusters['feature'] == landmark]['target'].tolist()
+        cluster = modularity[landmark]
         
         clust2 = cluster.copy()
         for i,j in G.edges(cluster):
@@ -2363,210 +3633,9 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
 
             df_return['Gene'] = df_return['Gene'].apply(lambda x: create_gene_link(x, 'uniprot', 'gene'))
         
-        return dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True)
-
-@app.callback(Output('cluster_feats_1', 'figure'),
-              Input('select_clust_feats_1', 'value'),
-              State('select_community_2', 'value'))
-def update_clust_feats_1(clust, landmark):
-    if landmark is None and clust is None:
-        return dash.no_update
-    elif landmark is not None and clust is not None:
-
-        feature_key = "cluster_models/" + landmark.replace(' ', '_') + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
-        importance_dict = feature_dict[int(clust)]
-        feat_labels = list(importance_dict.keys())
-        importances = list(importance_dict.values())
-        importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
-
-        fig = go.Figure()
-
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-        fig.update_xaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-
-        unique = set(list(['0', '1', '2', '3', '4', '5', '6']))
-        color_by_list = ['#9edae5', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#c49c94', '#aec7e8', '#ffbb78', '#c5b0d5', '#ff9896', '#ff9896']
-        color_bys = unique
-        if len(color_by_list) < len(color_bys):
-            color_by_dict = dict(zip(color_bys, cycle(color_by_list)))
-        else:
-            color_by_dict = dict(zip(color_bys, color_by_list))
-
-        fig.add_trace(go.Bar(
-            y=feat_labels[0:20],
-            x=importances[0:20],
-            name='Top Features for Cluster' + clust,
-            orientation='h',
-            marker=dict(
-                color=color_by_dict[clust],
-                opacity = 0.7,
-                line=dict(
-                    color='DarkSlateGray',
-                    width=1
-                    ),)
-            ))
-
-        fig.update_layout(
-            xaxis_title='Feature Score',
-            yaxis_title='Feature Name',
-            title_text='Top 20 Features for Cluster ' + str(clust),
-            title_x=0.5)
-
-    return fig
-
-@app.callback(Output('cluster_feats_2', 'figure'),
-              Input('select_clust_feats_2', 'value'),
-              State('select_community_2', 'value'))
-def update_clust_feats_1(clust, landmark):
-    if landmark is None and clust is None:
-        return dash.no_update
-    elif landmark is not None and clust is not None:
-        feature_key = "cluster_models/" + landmark.replace(' ', '_') + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
-        importance_dict = feature_dict[int(clust)]
-        feat_labels = list(importance_dict.keys())
-        importances = list(importance_dict.values())
-        importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
-
-        fig = go.Figure()
-
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-        fig.update_xaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-
-        unique = set(list(['0', '1', '2', '3', '4', '5', '6']))
-        color_by_list = ['#9edae5', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#c49c94', '#aec7e8', '#ffbb78', '#c5b0d5', '#ff9896', '#ff9896']
-        color_bys = unique
-        if len(color_by_list) < len(color_bys):
-            color_by_dict = dict(zip(color_bys, cycle(color_by_list)))
-        else:
-            color_by_dict = dict(zip(color_bys, color_by_list))
-            
-        fig.add_trace(go.Bar(
-            y=feat_labels[0:20],
-            x=importances[0:20],
-            name='Top Features for Cluster' + clust,
-            orientation='h',
-            marker=dict(
-                color=color_by_dict[clust],
-                opacity = 0.7,
-                line=dict(
-                    color='DarkSlateGray',
-                    width=1
-                    ),)
-            ))
-        
-        fig.update_layout(
-            xaxis_title='Feature Score',
-            yaxis_title='Feature Name',
-            title_text='Top 20 Features for Cluster ' + str(clust),
-            title_x=0.5)
-
-    return fig
-
-@app.callback(Output('cluster_feats_3', 'figure'),
-              Input('select_clust_feats_3', 'value'),
-              State('select_community_2', 'value'))
-def update_clust_feats_1(clust, landmark):
-    if landmark is None and clust is None:
-        return dash.no_update
-    elif landmark is not None and clust is not None:
-        feature_key = "cluster_models/" + landmark.replace(' ', '_') + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
-        importance_dict = feature_dict[int(clust)]
-        feat_labels = list(importance_dict.keys())
-        importances = list(importance_dict.values())
-        importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
-
-        fig = go.Figure()
-
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-        fig.update_xaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-
-        unique = set(list(['0', '1', '2', '3', '4', '5', '6']))
-        color_by_list = ['#9edae5', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#c49c94', '#aec7e8', '#ffbb78', '#c5b0d5', '#ff9896', '#ff9896']
-        color_bys = unique
-        if len(color_by_list) < len(color_bys):
-            color_by_dict = dict(zip(color_bys, cycle(color_by_list)))
-        else:
-            color_by_dict = dict(zip(color_bys, color_by_list))
-            
-        fig.add_trace(go.Bar(
-            y=feat_labels[0:20],
-            x=importances[0:20],
-            name='Top Features for Cluster' + clust,
-            orientation='h',
-            marker=dict(
-                color=color_by_dict[clust],
-                opacity = 0.7,
-                line=dict(
-                    color='DarkSlateGray',
-                    width=1
-                    ),)
-            ))
-
-        fig.update_layout(
-            xaxis_title='Feature Score',
-            yaxis_title='Feature Name',
-            title_text='Top 20 Features for Cluster ' + str(clust),
-            title_x=0.5)
-
-    return fig
-
-@app.callback(Output('cluster_feats_4', 'figure'),
-              Input('select_clust_feats_4', 'value'),
-              State('select_community_2', 'value'))
-def update_clust_feats_1(clust, landmark):
-    if landmark is None and clust is None:
-        return dash.no_update
-    elif landmark is not None and clust is not None:
-        feature_key = "cluster_models/" + landmark.replace(' ', '_') + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
-        importance_dict = feature_dict[int(clust)]
-        feat_labels = list(importance_dict.keys())
-        importances = list(importance_dict.values())
-        importances, feat_labels = zip(*sorted(zip(importances, feat_labels), reverse=True))
-
-        fig = go.Figure()
-
-        fig.update_layout(plot_bgcolor='white')
-        fig.update_yaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-        fig.update_xaxes(zeroline=True, zerolinecolor='rgb(211,211,211,0.8)', zerolinewidth=0.7, showgrid=False, showticklabels=True)
-
-        unique = set(list(['0', '1', '2', '3', '4', '5', '6']))
-        color_by_list = ['#9edae5', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#c49c94', '#aec7e8', '#ffbb78', '#c5b0d5', '#ff9896', '#ff9896']
-        color_bys = unique
-        if len(color_by_list) < len(color_bys):
-            color_by_dict = dict(zip(color_bys, cycle(color_by_list)))
-        else:
-            color_by_dict = dict(zip(color_bys, color_by_list))
-            
-        fig.add_trace(go.Bar(
-            y=feat_labels[0:20],
-            x=importances[0:20],
-            name='Top Features for Cluster' + clust,
-            orientation='h',
-            marker=dict(
-                color=color_by_dict[clust],
-                opacity = 0.7,
-                line=dict(
-                    color='DarkSlateGray',
-                    width=1
-                    ),)
-            ))
-                
-        fig.update_layout(
-            xaxis_title='Feature Score',
-            yaxis_title='Feature Name',
-            title_text='Top 20 Features for Cluster ' + str(clust),
-            title_x=0.5)
-
-    return fig
+        return dbc.Table.from_dataframe(df_return, striped=True, bordered=True, hover=True, size='sm')
 
 app.register_celery_tasks()
 
 if __name__ == '__main__':
-    app.run_server(host='0.0.0.0', port=8080, debug=True)
+    app.run_server(host='0.0.0.0', port=8113, debug=True)

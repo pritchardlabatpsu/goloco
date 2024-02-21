@@ -151,7 +151,7 @@ pip install .
 ```
 
 ### Step 3. Install Redis:
-Redis is an in-memory key-value store database used in this application as a message broker for long callback requests native to Python Dash with celery backend workers processing requests. Visit the [Redis](https://redis.io/docs/getting-started/installation/) documentation for any specific installation instructions that may be relevant to your machine.
+Redis is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with celery backend workers processing requests. Visit the [Redis](https://redis.io/docs/getting-started/installation/) documentation for any specific installation instructions that may be relevant to your machine.
 
 Run the following commands to install Redis for Linux distros or WSL2:
 
@@ -176,7 +176,7 @@ monitor
 
 #### Terminal 2. Start the Celery Backend Service:
 ```bash
-celery -A app.celery_worker worker --loglevel=INFO
+celery -A celery_worker worker --loglevel=INFO
 ```
 
 #### Terminal 3. Start the Python Dash App Service:
