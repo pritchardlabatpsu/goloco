@@ -18,12 +18,12 @@ SIDEBAR_STYLE = {
 layout = dbc.Container([
     html.Br(),
     
-    dbc.Row([dbc.Col(html.Div([
-        html.H4('goloco', className="display-4", style={'textAlign': 'center'}),
+    dbc.Row([dbc.Col(html.Div(id='goloco_home',
+        children = [html.H4('goloco', className="display-4", style={'textAlign': 'center'}),
         html.P('A webapp to perform genome wide loss of function inferences with compressed subsets of genes powered by Lossy Compression (LoCo)', style={'textAlign': 'center', 'font-size': '125%', 'font-family': 'Arial'}),
-        html.Br(),
-        html.Img(src='assets/webapp_IO.jpg', style={'height':'80%', 'width':'80%'}),
-        ],style=SIDEBAR_STYLE))]),
+        #html.Br(),
+        html.Img(src='./assets/webapp_io.jpg', style={'height':'80%', 'width':'80%'}),],
+        style=SIDEBAR_STYLE))]),
 
     html.Br(),
 

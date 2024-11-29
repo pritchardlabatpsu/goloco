@@ -1,9 +1,7 @@
 __pycache__/
 env/
 .vs
-.env
 pages/__pycache__/
-.env
 dump.rdb
 Pipfile
 .empty

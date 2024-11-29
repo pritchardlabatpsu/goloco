@@ -72,12 +72,13 @@ cell_line_DIRECTORY = './data/cell_line_names.pkl'
 launch_uid = uuid.uuid4()
 
 # AWS Bucket Information
-s3_client = boto3.client('s3')
-s3_bucket_name = 'ceres-infer'
-s3 = boto3.resource('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
-                          region_name='us-east-1')
-my_bucket = s3.Bucket(s3_bucket_name)
+#aws_available = os.environ['AWS_S3_AVAILABLE']
+
+#s3_client = boto3.client('s3')
+#s3_bucket_name = 'ceres-infer'
+#s3 = boto3.resource('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+#                          aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+#my_bucket = s3.Bucket(s3_bucket_name)
 
 # read depmap data from pickled directories
 global dm_data
@@ -115,7 +116,6 @@ if 'REDIS_URL' in os.environ:
     # background callback manager used to queue tasks and return results
     background_callback_manager = CeleryManager(celery_app, cache_by=[lambda: launch_uid], expire=3600)
     my_backend = FileSystemStore(cache_dir='./cache')
-    aws_available = True
 
 else:
     # Diskcache for non-production apps when developing locally
@@ -136,7 +136,6 @@ else:
 
     background_callback_manager = CeleryManager(celery_app, cache_by=[lambda: launch_uid], expire=3600)
     my_backend = FileSystemStore(cache_dir='./cache')
-    aws_available=False
 
 # define dash app
 app = DashProxy(__name__, use_pages=True, suppress_callback_exceptions=True,
@@ -219,6 +218,34 @@ app.layout = html.Div([
             ),
         ],
         id="completed-popup",
+        is_open=False,
+    ),
+
+    dbc.Modal(
+        [
+            dbc.ModalHeader("Completed"),
+            dbc.ModalBody("Your previous prediction has been uploaded. Select the button below to continue. Navigate to the Explore tabs to visualize your results."),
+            dbc.ModalFooter(
+                dbc.Button(
+                    "Continue", id="completed-tmp-2", color="primary", className="ms-auto", n_clicks=0
+                )
+            ),
+        ],
+        id="completed-2-popup",
+        is_open=False,
+    ),
+
+    dbc.Modal(
+        [
+            dbc.ModalHeader("Completed"),
+            dbc.ModalBody("Your genome wide inference has successfully completed. Select the button below to continue. Navigate to the Explore tabs to visualize the results."),
+            dbc.ModalFooter(
+                dbc.Button(
+                    "Continue", id="completed-tmp-1", color="primary", className="ms-auto", n_clicks=0
+                )
+            ),
+        ],
+        id="completed-1-popup",
         is_open=False,
     ),
 
@@ -752,7 +779,6 @@ def gostplot(gostres, query=False, capped=True, pal=None):
     return fig, table, [dbc.Table.from_dataframe(df_mapping, striped=True, bordered=True, index=False, size='sm')], [dbc.Table.from_dataframe(df_meta, striped=False, bordered=False, index=False, size='sm')]
 
 def discrete_background_color_bins(df, n_bins=100, columns='all'):
-    import colorlover
     bounds = [i * (1.0 / n_bins) for i in range(n_bins + 1)]
     if columns == 'all':
         if 'id' in df:
@@ -909,7 +935,7 @@ def toggle_modal(n1, n2, L200_filename, is_open):
 def toggle_modal(n1, n2, L200_filename, is_open):
     if L200_filename is not None:
         if n1 or n2:
-            return not is_openleted-popup
+            return not is_open
         return is_open
 
 @app.callback(
@@ -935,7 +961,7 @@ def toggle_modal(n1, n2, L200_filename, is_open):
         return is_open
 
 @app.callback(Output('completed-popup', 'is_open'),
-              Input('df_pred-store', 'data'),
+              Input('df_pred-store-tmp-3', 'data'),
               Input('completed', 'n_clicks'),
               State('completed-popup', 'is_open'),
               prevent_initial_call = True)
@@ -945,8 +971,32 @@ def toggle_modal(n1, n2, is_open):
         return not is_open
     return is_open
 
+# work
+@app.callback(Output('completed-1-popup', 'is_open'),
+              Input('df_pred-store-tmp-1', 'data'),
+              Input('completed-tmp-1', 'n_clicks'),
+              State('completed-1-popup', 'is_open'),
+              prevent_initial_call = True)
+def toggle_modal(n1, n2, is_open):
+    trigger_id = ctx.triggered_id
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+@app.callback(Output('completed-2-popup', 'is_open'),
+              Input('df_pred-store-tmp-2', 'data'),
+              Input('completed-tmp-2', 'n_clicks'),
+              State('completed-2-popup', 'is_open'),
+              prevent_initial_call = True)
+def toggle_modal(n1, n2, is_open):
+    trigger_id = ctx.triggered_id
+    if n1 or n2:
+        return not is_open
+    return is_open
+# 
+
 @app.callback(Output('conversion-completed-popup', 'is_open'),
-              Input('df-counts-convert', 'data'),
+              Input('df-counts-convert-tmp', 'data'),
               Input('conversion_completed', 'n_clicks'),
               State('conversion-completed-popup', 'is_open'),
               prevent_initial_call = True)
@@ -1422,10 +1472,16 @@ def run_convert(n_clicks, read_data, read_filename, sequence_data, sequence_file
             gene_effects = gene_effects.set_index('gene')
 
         user_id = str(uuid.uuid1())
-        pkl_filename = "chronos/" + user_id + "_l200_gene_effect_conversion.pkl"
-        pickle_buffer = io.BytesIO()
-        gene_effects.to_pickle(pickle_buffer)
-        s3.Object(s3_bucket_name, pkl_filename).put(Body=pickle_buffer.getvalue())
+
+        # for s3:
+        #pkl_filename = "chronos/" + user_id + "_l200_gene_effect_conversion.pkl"
+        #pickle_buffer = io.BytesIO()
+        #gene_effects.to_pickle(pickle_buffer)
+        #s3.Object(s3_bucket_name, pkl_filename).put(Body=pickle_buffer.getvalue())
+
+        # for local:
+        pkl_filename = "./ceres-infer/gene_effects/" + user_id + "_l200_gene_effect_conversion.pkl"
+        gene_effects.to_pickle(pkl_filename)
 
         return pkl_filename, None
 
@@ -1436,9 +1492,15 @@ def update_df_convert(pkl_filename):
     if pkl_filename is None:
         return dash.no_update
     else:
-        obj = s3.Object(s3_bucket_name, pkl_filename)
-        data = obj.get()['Body'].read()
-        gene_effects = pickle.load(io.BytesIO(data))                 
+        # for s3:
+        #obj = s3.Object(s3_bucket_name, pkl_filename)
+        #data = obj.get()['Body'].read()
+        #gene_effects = pickle.load(io.BytesIO(data))                 
+        
+        # for local:
+        with open(pkl_filename, 'rb') as f:
+            gene_effects = pickle.load(f)
+        
         return gene_effects.to_dict('dict')
 
 @app.callback(Output('download-convert', 'data'),
@@ -1486,7 +1548,7 @@ def run_inference(set_progress, con_n_clicks, L200_filename, L200_data): #set_pr
         t1 = time.perf_counter()
         for i, gene in enumerate(scope):
             logging.warning(gene)
-            pred = a.infer_gene(gene, aws_s3=True)
+            pred = a.infer_gene(gene)
             x_avg, x_std, z_score = a.calc_z_score(gene, pred)
             genes.append(gene)
             ceres_pred[i] = pred
@@ -1512,12 +1574,17 @@ def run_inference(set_progress, con_n_clicks, L200_filename, L200_data): #set_pr
             df_pred[exp + ' (Z-Score)'] = z_scores[:, i]
         df_pred.set_index('gene')
         user_id = str(uuid.uuid1())
-        pkl_filename = "predictions/" + user_id + "_genome_wide_prediction.pkl"
         #df_pred = pd.read_csv(os.path.join(OUTPUT_DIRECTORY, 'prediction.csv')) # for testing
-        pickle_buffer = io.BytesIO()
-        df_pred.to_pickle(pickle_buffer)
-        s3.Object(s3_bucket_name, pkl_filename).put(Body=pickle_buffer.getvalue())
-        logging.warning(pkl_filename)
+        
+        # for s3:
+        #pkl_filename = "predictions/" + user_id + "_genome_wide_prediction.pkl"
+        #pickle_buffer = io.BytesIO()
+        #df_pred.to_pickle(pickle_buffer)
+        #s3.Object(s3_bucket_name, pkl_filename).put(Body=pickle_buffer.getvalue())
+        
+        # for local disk:
+        pkl_filename = "./ceres-infer/gw_predictions/" + user_id + "_genome_wide_prediction.pkl"
+        df_pred.to_pickle(pkl_filename)
         set_progress((100, "100 %", "Estimated Time Remaining: " + "00:00:00"))
         return pkl_filename, a.experiments, L200_filename
 
@@ -1569,9 +1636,14 @@ def update_df_pred_store(data1, data2, pkl_filename):
         return data2
     elif trigger_id=='df_pred-store-tmp-3':
         logging.warning('****')
-        obj = s3.Object(s3_bucket_name, pkl_filename)
-        data = obj.get()['Body'].read()
-        df_pred = pickle.load(io.BytesIO(data))                 
+        # for s3:
+        #obj = s3.Object(s3_bucket_name, pkl_filename)
+        #data = obj.get()['Body'].read()
+        #df_pred = pickle.load(io.BytesIO(data))                 
+        
+        # for local:
+        with open(pkl_filename , 'rb') as f:
+            df_pred = pickle.load(f)
         return df_pred.to_dict('dict')
 
 @app.callback(Output('download-pred', 'data'),
@@ -3439,16 +3511,31 @@ def create_cluster_graph(landmark, layout, cmap):
         return dash.no_update
     elif landmark is not None and layout is not None:
 
-        phate_op_key = "cluster_models/" + 'louvain_' + str(landmark) + "_phate_op.pkl"
-        phate_op = pickle.load(return_s3_object(s3, s3_bucket_name, phate_op_key))
+        # for s3:
+        #phate_op_key = "cluster_models/" + 'louvain_' + str(landmark) + "_phate_op.pkl"
+        #phate_op = pickle.load(return_s3_object(s3, s3_bucket_name, phate_op_key))
         
-        coords_key = "cluster_models/" + 'louvain_' + str(landmark) + "_coords.npy"
-        coords = np.load(return_s3_object(s3, s3_bucket_name, coords_key))
+        #coords_key = "cluster_models/" + 'louvain_' + str(landmark) + "_coords.npy"
+        #coords = np.load(return_s3_object(s3, s3_bucket_name, coords_key))
+
+        #clusters = phate.cluster.kmeans(phate_op, k=7)
+        
+        #cluster_cell_lines_key = "cluster_models/" + 'louvain_' + str(landmark) + '_cell_lines.pkl'
+        #cluster_cell_lines = pickle.load(return_s3_object(s3, s3_bucket_name, cluster_cell_lines_key))
+
+        # for local:
+        phate_op_key = "./ceres-infer/cluster_models/" + 'louvain_' + str(landmark) + "_phate_op.pkl"
+        with open(phate_op_key, 'rb') as f:
+            phate_op = pickle.load(f)
+        
+        coords_key = "./ceres-infer/cluster_models/" + 'louvain_' + str(landmark) + "_coords.npy"
+        coords = np.load(coords_key)
 
         clusters = phate.cluster.kmeans(phate_op, k=7)
         
-        cluster_cell_lines_key = "cluster_models/" + 'louvain_' + str(landmark) + '_cell_lines.pkl'
-        cluster_cell_lines = pickle.load(return_s3_object(s3, s3_bucket_name, cluster_cell_lines_key))
+        cluster_cell_lines_key = "./ceres-infer/cluster_models/" + 'louvain_' + str(landmark) + '_cell_lines.pkl'
+        with open(cluster_cell_lines_key, 'rb') as f:
+            cluster_cell_lines = pickle.load(f)
 
         Y_phate_tsne = coords[int(layout[0])]
 
@@ -3507,9 +3594,15 @@ def create_cluster_graph(landmark, layout, cmap):
         margin=dict(t=80, b=80),
         height=700)
 
-        feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
+        # for s3:
+        #feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
+        #feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
         
+        # for local:
+        feature_key = "./ceres-infer/cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
+        with open(feature_key, 'rb') as f:
+            feature_dict = pickle.load(f)
+
         fig2 = make_subplots(rows=2, cols=4, x_title='<b>Feature Score')
 
         unique = ['0', '1', '2', '3', '4', '5', '6']
@@ -3579,8 +3672,15 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
     if clust is None or (cell_line is None and experiment is None) or landmark is None:
         return dash.no_update
     else:
-        feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
-        feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
+        # for s3:
+        #feature_key = "cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
+        #feature_dict = pickle.load(return_s3_object(s3, s3_bucket_name, feature_key))
+        
+        # for local:
+        feature_key = "./ceres-infer/cluster_models/" + 'louvain_' + str(landmark) + "_feat_importance_rf.pkl"
+        with open(feature_key, 'rb') as f:
+            feature_dict = pickle.load(f)
+        
         importance_dict = feature_dict[int(clust)]
         feat_labels = list(importance_dict.keys())
         importances = list(importance_dict.values())
@@ -3638,4 +3738,4 @@ def create_network_graph_1(clust, choice, landmark, cell_line, experiment, pred_
 app.register_celery_tasks()
 
 if __name__ == '__main__':
-    app.run_server(host='0.0.0.0', port=8113, debug=True)
+    app.run_server(host='0.0.0.0', port=8080, debug=True)

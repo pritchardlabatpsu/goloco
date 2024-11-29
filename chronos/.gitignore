@@ -1,0 +1,14 @@
+*.DS_store
+Data/Achilles_run/
+Data/Achilles_run_compare/
+Data/logs/
+Data/reports
+Data/DepMapParameters/
+*.egg-info
+*.pyc
+.ipynb_checkpoints/
+build/
+dist/
+chronos/__pycache__
+chronos/unimodal_density_estimate.py
+

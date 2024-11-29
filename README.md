@@ -54,9 +54,8 @@ Network files included in this repository are consistent with louvain communitie
 ### Download Models:
 Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use:
 
-Still in development, download will be made available
+The ceres-infer.zip file contains the inference models. We recommend unzipping this file into a local directory outside of this repository and deleting the .zip file. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
 
-Unzipping this download into the cloned repository will create a new folder in the main directory with two subfolders:
 ```bash
 .
 .
@@ -65,25 +64,24 @@ Unzipping this download into the cloned repository will create a new folder in t
         ├──              
     ├── cluster_models   # contains all pickled clustering models for louvain communities
         ├── 
+    ├── gw_predictions   # empty directory which will store genome wide predictions
+        ├──              
+    ├── gene_effects     # empty directory which will store gene effect score conversions
+        ├── 
 ```
 
-### Modify Config File:
-Still in development
+### Modify .env File:
+The .env file will contain the following environmental variable specifying the PATH to the inference models. Change the PATH to the ceres-infer directory on your local machine prior to building the container. The directory will be mounted on the container during the build process.
+
+```
+CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer
+```
 
 ## Run with Docker:
 If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
 
-### Step 1: Install Redis for Docker:
-[Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
-
-Open Docker desktop, search and pull the image for 'redis:latest', or run the following command in a terminal:
-
-```bash
-docker pull redis
-```
-
-### Step 2: Run Docker Compose:
-Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying configuration variables in the source code.
+### Step 1: Run Docker Compose:
+Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying environmental variables in the source code.
 
 Clone this repository, navigate to the goloco directory that contains the Dockerfile and docker-compose.yml files, and run the following command in your terminal:
 
@@ -91,9 +89,9 @@ Clone this repository, navigate to the goloco directory that contains the Docker
 docker compose up
 ```
 
-This previous step may take a while.
+This previous step may take a while. Redis will be installed with this step. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
 
-### Step 3: Open goloco:
+### Step 2: Open goloco:
 Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Open any web browser and navigate to the following address to access this application:
 
 ```bash
