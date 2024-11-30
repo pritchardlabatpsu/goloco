@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   web:
-    image: "shossainova1/goloco-webapp"
+    image: "shossainova1/goloco-webapp:${CPU}"
     command: gunicorn app:server -b 0.0.0.0:8080
     container_name: app
     environment:
@@ -17,7 +17,7 @@ services:
       - ${CERES_INFER_MODELS_PATH}:/app/ceres-infer
 
   worker:
-    image: "shossainova1/goloco-webapp"
+    image: "shossainova1/goloco-webapp:${CPU}"
     command: celery -A app.celery_app worker --loglevel=INFO --concurrency=2
     environment:
       - CELERY_BROKER=redis://redis:6379/0

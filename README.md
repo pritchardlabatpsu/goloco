@@ -78,15 +78,16 @@ The ceres-infer.zip file in the Zenodo library ([https://zenodo.org/records/1425
         ├── 
 ```
 
-### Modify .env File:
-The .env file will contain the following environmental variable specifying the PATH to the inference models from above. Change the PATH to the ceres-infer directory on your local machine prior to building the container. The directory will be mounted on the container during the build process.
+### Modify .env file:
+The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. Change the CERES_INFER_MODELS_PATH to the ceres-infer directory on your local machine prior to building the container. The directory will be mounted on the container during the build process. Change the CPU variable to either "intel" or "apple_silicon" depending on the CPU on your device.
 
 ```
-CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer
+CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer <- change PATH to your local directory with inference models 
+CPU=intel <- change to apple_silicon if CPU is apple based
 ```
 
 ## Run with Docker:
-If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/). A public prebuilt image is included in the Docker hub under the name, "shossainova1\goloco-webapp". Although not required prior to running step 1 below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp```.
+If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/). Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images are available for intel CPUs tagged "shossainova1\goloco-webapp:intel" and apple silicon CPUs tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to running step 1 below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
 
 ### Step 1: Run Docker Compose:
 Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying environmental variables in the source code.
