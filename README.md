@@ -52,6 +52,8 @@ The cloned repository will have the following file structure:
 ├── .env                   # environmental variable required to run app in container
 ```
 
+This repository is also publically available through Zenodo ([https://doi.org/10.5281/zenodo.14249073](https://doi.org/10.5281/zenodo.14249073)). This DOI does not contain the inference dataset as it is linked to the tagged releases from this Github Repo. See data section below for Zenodo library with dataset.
+
 ## Data:
 Some data files are already included in the data folder of this repository. The application mainly uses [DepMap19Q4](https://depmap.org/portal/download/all/?releasename=DepMap+Public+19Q4) release files; our models were validated on this release [[1]](#1). Cell lines, CERES gene-effect scores, and definitions for essential, nonessential, and conditional genes are all consitent with DepMap19q4 [[2]](#2). 
 
@@ -60,7 +62,7 @@ Network files included in this repository are consistent with louvain communitie
 ### Download Models:
 Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use:
 
-The ceres-infer.zip file in the Zenodo library contains the inference models. We recommend unzipping this file into a local directory outside of this repository as it will later be mounted onto a container. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
+The ceres-infer.zip file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the inference models. We recommend unzipping this file into a local directory outside of this repository as it will later be mounted onto a container. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
 
 ```bash
 .
@@ -89,13 +91,13 @@ If you wish to run goloco on your local machine, it is **recommended** to launch
 ### Step 1: Run Docker Compose:
 Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying environmental variables in the source code.
 
-Clone this repository, navigate to the goloco directory that contains the Dockerfile and docker-compose.yml files, and run the following command in your terminal:
+Clone this repository, navigate to the goloco directory that contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
 
 ```bash
 docker compose -f compose.prod.yml up
 ```
 
-This previous step may take a while. It will pull both the public webapp image from the Docker hub and Redis. It will also start all the app services and mount the inference models in your local directory to the container. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
+This previous step may take a while. It will pull both the Redis image and the public webapp image from Dockerhub. It will also start all the app services and mount the inference models in your local directory to the container. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
 
 **ALTERNATIVELY:** The container can be built from scratch on your local machine with the following command. This can be useful for developers who wish to change the app and rebuild the container. This can be done by running the following command:
 
