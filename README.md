@@ -26,10 +26,14 @@ The cloned repository will have the following file structure:
 
 ```bash
 .
-├── assets                 # contains static images on web application.. no images in current deployment
-    ├──                            # empty with current deploy
+├── assets                 # contains static images on web application
+    ├──                            # images
 ├── cache                  # for temporary dynamic storage functions
     ├──                            # empty
+├── ceres-infer            # empty directory which will serve as mount point for inference models
+    ├──                            # empty
+├── chronos                # chronos v2.0.5 from depmap git repo for direct installation in container
+    ├──                            # installation files
 ├── data                   # contains static data files used by application, i.e. depmap19q4 release
     ├──                            # details described in data section
 ├── pages                  # contains source code for each unique webpage
@@ -39,11 +43,13 @@ The cloned repository will have the following file structure:
 ├── celery_worker.py       # PYTHON DEV USE: executable background celery workers.. execute with "celery -A celery_worker worker"
 ├── app_session.py         # main class and asssociated functions for performing genome-wide prediction
 ├── Dockerfile             # DOCKER DEV USE: executable to create single Docker image.. execute with "docker run"
-├── docker-compose.yml     # DOCKER DEV USE: executable to create multicontainer Docker app.. execute with "docker compose up"
+├── compose.dev.yml        # DOCKER DEV USE: executable to create multicontainer Docker app from scratch.. execute with "docker compose -f compose.dev.yml up"
+├── compose.prod.yml       # DOCKER USE: executable to create multicontainer Docker app from public image.. execute with "docker compose -f compose.prod.yml up"
 ├── heroku.yml             # FOR PRODUCTION USE: heroku executable for git deploy to create multicontainer Docker based Heroku app
 ├── Procfile               # FOR PRODUCTION USE: heroku executable code for Heroku git deploy
 ├── .dockerignore          # instructs docker to ignore python cache files and env files
 ├── .gitignore             # instructs git to ignore python cache files and env files
+├── .env                   # environmental variable required to run app in container
 ```
 
 ## Data:
@@ -54,7 +60,7 @@ Network files included in this repository are consistent with louvain communitie
 ### Download Models:
 Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use:
 
-The ceres-infer.zip file contains the inference models. We recommend unzipping this file into a local directory outside of this repository and deleting the .zip file. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
+The ceres-infer.zip file in the Zenodo library contains the inference models. We recommend unzipping this file into a local directory outside of this repository as it will later be mounted onto a container. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
 
 ```bash
 .
@@ -71,14 +77,14 @@ The ceres-infer.zip file contains the inference models. We recommend unzipping t
 ```
 
 ### Modify .env File:
-The .env file will contain the following environmental variable specifying the PATH to the inference models. Change the PATH to the ceres-infer directory on your local machine prior to building the container. The directory will be mounted on the container during the build process.
+The .env file will contain the following environmental variable specifying the PATH to the inference models from above. Change the PATH to the ceres-infer directory on your local machine prior to building the container. The directory will be mounted on the container during the build process.
 
 ```
 CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer
 ```
 
 ## Run with Docker:
-If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
+If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/). A public prebuilt image is included in the Docker hub under the name, "shossainova1\goloco-webapp". Although not required prior to running step 1 below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp```.
 
 ### Step 1: Run Docker Compose:
 Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying environmental variables in the source code.
@@ -86,10 +92,16 @@ Prior to launching this application, please see the [data](#data) section for in
 Clone this repository, navigate to the goloco directory that contains the Dockerfile and docker-compose.yml files, and run the following command in your terminal:
 
 ```bash
-docker compose up
+docker compose -f compose.prod.yml up
 ```
 
-This previous step may take a while. Redis will be installed with this step. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
+This previous step may take a while. It will pull both the public webapp image from the Docker hub and Redis. It will also start all the app services and mount the inference models in your local directory to the container. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
+
+**ALTERNATIVELY:** The container can be built from scratch on your local machine with the following command. This can be useful for developers who wish to change the app and rebuild the container. This can be done by running the following command:
+
+```bash
+docker compose -f compose.dev.yml up
+```
 
 ### Step 2: Open goloco:
 Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Open any web browser and navigate to the following address to access this application:
@@ -112,7 +124,7 @@ goloco can be installed and launched as a Python Dash application on your local 
 Clone this repository, navigate to the goloco main directory, and run the following commands to create and activate a new python virtual environment:
 
 ```bash
-conda create --name goloco -c conda-forge python=3.8
+conda create --name goloco -c conda-forge python=3.9
 conda activate goloco
 ```
 
