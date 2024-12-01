@@ -26,7 +26,7 @@ First clone this repository:
 git clone https://github.com/pritchardlabatpsu/goloco.git
 ```
 
-This repository is also publically available through Zenodo ([https://doi.org/10.5281/zenodo.14249073](https://doi.org/10.5281/zenodo.14249073)). This DOI does not contain the inference dataset as it is linked to the tagged releases from this Github Repo, which cannot store all the inference models. See the download data section below for the Zenodo library with dataset.
+This repository is also publically available through Zenodo ([https://doi.org/10.5281/zenodo.14249073](https://doi.org/10.5281/zenodo.14249073)). This DOI does not contain the inference dataset as it is linked to the tagged releases from this Github Repo, which cannot store all the inference models. See the download data section below for the Zenodo library with the inference models dataset.
 
 #### File Structure:
 The cloned repository will have the following file structure:
@@ -64,7 +64,11 @@ The cloned repository will have the following file structure:
 Some data files are already included in the data folder of this repository. The application mainly uses [DepMap19Q4](https://depmap.org/portal/download/all/?releasename=DepMap+Public+19Q4) release files; our models were validated on this release [[1]](#1). Cell lines, CERES gene-effect scores, and definitions for essential, nonessential, and conditional genes are all consitent with DepMap19q4 [[2]](#2). Network files included in this repository are consistent with louvain communities determined in our previous work [[1]](#1).
 
 #### Download Inference Models
-Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use. The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the inference models. Download this file and unzip it somewhere **OUTSIDE** of your local goloco git repository. **DO NOT** unzip this file directly into your local goloco git repository as this data is not intended to be built directly into the container. Instead it will serve as a database that will be mounted onto the container during the build process. Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
+Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use. The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the inference models. 
+
+Download this file and unzip it somewhere **OUTSIDE** of your cloned goloco git repository. **DO NOT** unzip this file directly into your cloned goloco git repository as this data is not intended to be built directly into the container. Instead it will serve as a database that will be mounted onto the container during the build process. 
+
+Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
 
 ```bash
 .
@@ -81,15 +85,18 @@ Genome-wide inference models and predetermined subclustering models of louvain c
 ```
 
 ### Step 3: Modify the .env file:
-The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. Change the CERES_INFER_MODELS_PATH to the ceres-infer directory downloaded in Step 2 on your local machine prior to building the container. The directory will be mounted on the container during the build process. Also, change the CPU variable to either "intel" or "apple_silicon" depending on the CPU on your device.
+The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
+- Change the CERES_INFER_MODELS_PATH to the ceres-infer directory on your local machine that was downloaded in Step 2. The directory will be mounted on the container during the build process. 
+- Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
 
+The .env file will look something like this:
 ```
-CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer <- change this PATH to your local ceres-infer folder downloaded and unzipped in step 2 
+CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer <- change this PATH to your local ceres-infer folder downloaded and unzipped from step 2 
 CPU=intel <- change to apple_silicon if CPU is apple based
 ```
 
 ### Step 4: Run Docker Compose:
-Navigate to your local goloco git repository that contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
+Navigate to your cloned goloco git repository that contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
 
 ```bash
 docker compose -f compose.prod.yml up
