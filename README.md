@@ -17,7 +17,7 @@ Using the public version of this application is recommended for all users and is
 ## Run with Docker:
 Running this application on your local machine can be benefical to overcome CPU, memory, and storage limitations on the public server that limit genome-wide prediction runtimes and application responsiveness. If using either Docker or Python Dash to run this application locally, it is important to follow the instructions in the download data section to ensure models are accessible to the local app.
 
-If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/). Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images are available for intel CPUs tagged "shossainova1\goloco-webapp:intel" and apple silicon CPUs tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the steps below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
+If you wish to run goloco on your local machine, it is **recommended** to launch it as a Docker container which is fully configured to develop the application environment and launch the application services with little manual input. This procedure requires prior installation of [Docker desktop](https://www.docker.com/products/docker-desktop/).
 
 ### Step 1: Clone this repository:
 First clone this repository:
@@ -26,7 +26,7 @@ First clone this repository:
 git clone https://github.com/pritchardlabatpsu/goloco.git
 ```
 
-This repository is also publically available through Zenodo ([https://doi.org/10.5281/zenodo.14249073](https://doi.org/10.5281/zenodo.14249073)). This DOI does not contain the inference dataset as it is linked to the tagged releases from this Github Repo, which cannot store all the inference models. See the download data section below for the Zenodo library with the inference models dataset.
+This repository is also publically available through Zenodo ([https://doi.org/10.5281/zenodo.14249073](https://doi.org/10.5281/zenodo.14249073)). This DOI does not contain the inference models as it is linked to the tagged releases from this Github Repo, which cannot store all the inference models due to size limitations. See the [download data](#download-inference-models) section below for the Zenodo library with the inference models dataset.
 
 #### File Structure:
 The cloned repository will have the following file structure:
@@ -66,7 +66,7 @@ Some data files are already included in the data folder of this repository. The 
 #### Download Inference Models
 The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the genome-wide inference models required to run goloco with Docker. 
 
-Download this file and unzip it somewhere **OUTSIDE** of your cloned goloco git repository. **DO NOT** unzip this file directly into your cloned goloco git repository as this data is not intended to be built directly into the container. Instead it will serve as a database that will be mounted onto the container during the build process. 
+Download this file and unzip it somewhere **OUTSIDE** of your cloned goloco git repository. **DO NOT** unzip this file directly into your cloned repository as this data is not intended to be built directly into the container. Instead it will serve as a database that will be mounted onto the container during the build process. 
 
 Unzipping this download somewhere in your local machine will create a new folder with the following subdirectories:
 
@@ -86,25 +86,25 @@ Unzipping this download somewhere in your local machine will create a new folder
 
 ### Step 3: Modify the .env file:
 The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
-- Change the CERES_INFER_MODELS_PATH to the ceres-infer directory on your local machine, which was downloaded from Zenodo in step 2. 
+- Change the CERES_INFER_MODELS_PATH to the ceres-infer directory, which was downloaded from Zenodo in step 2, on your local machine. **NOTE** this should not be the ceres-infer folder in your cloned repository, which is simply an empty folder serving as a mount point for the container.
 - Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
 
 The .env file will look something like this:
 ```
 CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer <- change this PATH to your local ceres-infer folder downloaded and unzipped from step 2 
-CPU=intel <- change to apple_silicon if CPU is apple based
+CPU=intel <- change this to apple_silicon if CPU is apple based
 ```
 
 ### Step 4: Run Docker Compose:
-Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images are available for intel CPUs tagged "shossainova1\goloco-webapp:intel" and apple silicon CPUs tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the steps below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
+Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images compatible with intel CPUs are tagged "shossainova1\goloco-webapp:intel", and apple silicon CPUs are tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the step below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
 
-Navigate to your cloned goloco git repository that contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
+Navigate to your cloned repository which contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
 
 ```bash
 docker compose -f compose.prod.yml up
 ```
 
-This previous step may take a while. It will pull both the Redis image and the public webapp image from Dockerhub. It will also start all the app services and mount the inference models in your local directory to the container. The app services will start automatically and includes Redis and Celery. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
+This previous step may take a while. It will pull both the Redis image and the public webapp image from Dockerhub. It will mount the inference models in your local machine to the container and start the app services automatically, including Redis and Celery. [Redis](https://redis.io/docs/getting-started/installation/) is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with [celery](https://docs.celeryq.dev/en/stable/userguide/workers.html) backend workers processing requests. 
 
 **ALTERNATIVELY:** The container can be built from scratch on your local machine with the following command. This can be useful for developers who wish to change the app source code and rebuild the container. This can be done by running the following command:
 
