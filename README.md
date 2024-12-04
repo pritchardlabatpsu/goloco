@@ -64,7 +64,7 @@ The cloned repository will have the following file structure:
 Some data files are already included in the data folder of this repository. The application mainly uses [DepMap19Q4](https://depmap.org/portal/download/all/?releasename=DepMap+Public+19Q4) release files; our models were validated on this release [[1]](#1). Cell lines, CERES gene-effect scores, and definitions for essential, nonessential, and conditional genes are all consitent with DepMap19q4 [[2]](#2). Network files included in this repository are consistent with louvain communities determined in our previous work [[1]](#1).
 
 #### Download Inference Models
-Genome-wide inference models and predetermined subclustering models of louvain communities need to be downloaded for local development and use. The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the inference models. 
+The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the genome-wide inference models required to run goloco with Docker. 
 
 Download this file and unzip it somewhere **OUTSIDE** of your cloned goloco git repository. **DO NOT** unzip this file directly into your cloned goloco git repository as this data is not intended to be built directly into the container. Instead it will serve as a database that will be mounted onto the container during the build process. 
 
@@ -86,7 +86,7 @@ Unzipping this download somewhere in your local machine will create a new folder
 
 ### Step 3: Modify the .env file:
 The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
-- Change the CERES_INFER_MODELS_PATH to the ceres-infer directory on your local machine that was downloaded in Step 2. The directory will be mounted on the container during the build process. 
+- Change the CERES_INFER_MODELS_PATH to the ceres-infer directory on your local machine, which was downloaded from Zenodo in step 2. 
 - Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
 
 The .env file will look something like this:
@@ -96,6 +96,8 @@ CPU=intel <- change to apple_silicon if CPU is apple based
 ```
 
 ### Step 4: Run Docker Compose:
+Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images are available for intel CPUs tagged "shossainova1\goloco-webapp:intel" and apple silicon CPUs tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the steps below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
+
 Navigate to your cloned goloco git repository that contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
 
 ```bash
