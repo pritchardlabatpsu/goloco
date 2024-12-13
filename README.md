@@ -85,7 +85,7 @@ Unzipping this download somewhere in your local machine will create a new folder
 ```
 
 ### Step 3: Modify the .env file:
-The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
+Navigate to the cloned repository and find the .env file. Note that this file may be hidden in MacOS and requires showing hidden files to find. The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
 - Change the CERES_INFER_MODELS_PATH to the ceres-infer directory, which was downloaded from Zenodo in step 2, on your local machine. **NOTE** this should not be the ceres-infer folder in your cloned repository, which is simply an empty folder serving as a mount point for the container.
 - Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
 

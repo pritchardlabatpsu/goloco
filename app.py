@@ -68,6 +68,7 @@ adjlist_DIRECTORY = './data/varExp_filtered.adjlist'
 feat_sum_DIRECTORY = './data/feat_summary_varExp_filtered_class.csv'
 modularity_DIRECTORY = './data/modularity.pkl'
 cell_line_DIRECTORY = './data/cell_line_names.pkl'
+manual_DIRECTORY = './data/goloco_user_manual.pdf'
 
 launch_uid = uuid.uuid4()
 
