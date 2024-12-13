@@ -90,9 +90,9 @@ Navigate to the cloned repository and find the .env file. Note that this file ma
 - Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
 
 The .env file will look something like this:
-```
-CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer <- change this PATH to your local ceres-infer folder downloaded and unzipped from step 2 
-CPU=intel <- change this to apple_silicon if CPU is apple based
+```shell
+CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer # change this PATH to your local ceres-infer folder downloaded and unzipped from step 2 
+CPU=intel # change this to apple_silicon if CPU is apple based
 ```
 
 ### Step 4: Run Docker Compose:
