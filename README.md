@@ -87,16 +87,16 @@ Unzipping this download somewhere in your local machine will create a new folder
 ### Step 3: Modify the .env file:
 Navigate to the cloned repository and find the .env file. Note that this file may be hidden in MacOS and requires showing hidden files to find. The .env file will contain the following environmental variables specifying the PATH to the inference models from above and specifying the CPU type. 
 - Change the CERES_INFER_MODELS_PATH to the ceres-infer directory, which was downloaded from Zenodo in step 2, on your local machine. **NOTE** this should not be the ceres-infer folder in your cloned repository, which is simply an empty folder serving as a mount point for the container.
-- Change the CPU variable to either "intel" or "apple_silicon", depending on the CPU on your device.
+- Change the CPU variable to either "x86-64" or "apple_silicon", depending on the CPU on your device.
 
 The .env file will look something like this:
 ```shell
 CERES_INFER_MODELS_PATH=C:\Users\shasa\Desktop\ceres-infer # change this PATH to your local ceres-infer folder downloaded and unzipped from step 2 
-CPU=intel # change this to apple_silicon if CPU is apple based
+CPU=x86-64 # change this to apple_silicon if CPU is apple based
 ```
 
 ### Step 4: Run Docker Compose:
-Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images compatible with intel CPUs are tagged "shossainova1\goloco-webapp:intel", and apple silicon CPUs are tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the step below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
+Public prebuilt images are included in the Dockerhub under the name, "shossainova1\goloco-webapp". Images compatible with intel and AMD CPUs are tagged "shossainova1\goloco-webapp:x86-64", and apple silicon CPUs are tagged "shossainova1\goloco-webapp:apple_silicon". Although not required prior to following the step below, this image can be pulled with the command ```docker pull shossainova1\goloco-webapp:{CPU}```, replacing {CPU} with the correct CPU tag.
 
 Navigate to your cloned repository which contains the Dockerfile and compose.prod.yml files, and run the following command in your terminal:
 
