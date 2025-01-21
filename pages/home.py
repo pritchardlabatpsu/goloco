@@ -21,8 +21,9 @@ layout = dbc.Container([
     dbc.Row([dbc.Col(html.Div(id='goloco_home',
         children = [html.H4('goloco', className="display-4", style={'textAlign': 'center'}),
         html.P('A webapp to perform genome wide loss of function inferences with compressed subsets of genes powered by Lossy Compression (LoCo)', style={'textAlign': 'center', 'font-size': '125%', 'font-family': 'Arial'}),
-        html.Div([html.A('Download the User Manual to Get Started', id='download_manual_link', href="#")], style = {'textAlign' : 'center'}),
-        dcc.Download(id="download_manual_data"),
+        dcc.Loading(id="download_manual_data_load", children = [
+            html.Div([html.A('Download the User Manual to Get Started', id='download_manual_link', href="#")], style = {'textAlign' : 'center'}),
+            dcc.Download(id="download_manual_data")], type="default"),
         html.Br(),
         html.Img(src='./assets/webapp_io.jpg', style={'height':'80%', 'width':'80%'}),],
         style=SIDEBAR_STYLE))]),        

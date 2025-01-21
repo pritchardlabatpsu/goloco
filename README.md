@@ -134,6 +134,7 @@ Clone this repository, navigate to the goloco main directory, and run the follow
 ```bash
 conda create --name goloco -c conda-forge python=3.9
 conda activate goloco
+# try 'source activate goloco' if 'conda activate goloco' does not work 
 ```
 
 This command can be used anytime to deactivate the virtual environment, however it is not intended for use prior to following the remaining steps:
@@ -142,33 +143,32 @@ This command can be used anytime to deactivate the virtual environment, however 
 conda deactivate
 ```
 
-Run the following commands to install the basic required packages. Note that scikit-learn is installed manually to avoid conflicting dependencies specified by other packages:
-
-```bash
-pip install -r requirements.txt
-pip install scikit-learn==0.22.1
-```
-
 ### Step 2. Install CHRONOS:
 goloco uses a modification of the chronos software by the Broad Institute [[3]](#3) to generate psuedo-chronos gene effect scores from smaller scale CRISPR knock out experiments (i.e, lossy subset experiments). Visit the [chronos](https://github.com/broadinstitute/chronos) documentation for any specific installation instructions that may be relevant to your machine.
 
-In general, manual installation of chronos is required by running the following commands in the goloco main directory with the activated virtual environment:
+In general, manual installation of chronos is required. A cloned version of chronos v2.0.6 is included in this Github due to compability issues. Start by navigating to that cloned folder:
 
 ```bash
-git clone https://github.com/broadinstitute/chronos.git
+cd chronos
 ```
 
-Then navigate to the cloned chronos directory and run the following command:
+Then run the following command to begin installation:
 
 ```bash
 python setup.py install
 ```
-or
+
+**NOTE:** Chronos is not installed with pip as it results in dependency issues with other requirements for goloco which are not real dependency issues. 
+
+### Step 3. Install Requirements:
+Next, navigate back to the goloco main directory with the requirements.txt file and run the following commands to install the basic required packages:
+
 ```bash
-pip install .
+pip install -r requirements.txt
+pip install python_dotenv
 ```
 
-### Step 3. Install Redis:
+### Step 4. Install Redis:
 Redis is an in-memory key-value store database used in this application as a message broker for long callback requests, native to Python Dash, with celery backend workers processing requests. Visit the [Redis](https://redis.io/docs/getting-started/installation/) documentation for any specific installation instructions that may be relevant to your machine.
 
 Run the following commands to install Redis for Linux distros or WSL2:
@@ -179,10 +179,29 @@ sudo apt-get install redis-server
 sudo systemctl enable redis-server.service
 ```
 
-### Step 4. Launch goloco:
-Prior to launching this application, please see the [data](#data) section for instructions on downloading the core predictive models and modifying configuration variables in the source code.
+### Step 5. Download Data:
+The *ceres-infer.zip* file in the Zenodo library ([https://zenodo.org/records/14251390](https://zenodo.org/records/14251390)) contains the genome-wide inference models required to run goloco locally. 
 
-This app uses three main services to operate: Redis (message broker), Celery (backend worker), and Python Dash (main app). To launch these services open three separate terminals in the main goloco directory, activate the virtual environment in each, and run the following commands: 
+Unlike in step 2 of running this application with Docker, you should download this file and unzip it directly into the cloned goloco repository which will replace the *ceres-infer* folder in your cloned repository.
+
+Unzipping this download into your cloned repository will contain the following subdirectories:
+
+```bash
+.
+.
+├── ceres-infer
+    ├── L200_models      # contains all feature and pickled model files for each gene model
+        ├──              
+    ├── cluster_models   # contains all pickled clustering models for louvain communities
+        ├── 
+    ├── gw_predictions   # empty directory which will store genome wide predictions
+        ├──              
+    ├── gene_effects     # empty directory which will store gene effect score conversions
+        ├── 
+```
+
+### Step 6. Launch goloco:
+This app uses three main services to operate: Redis (message broker), Celery (backend worker), and Python Dash (main app). To launch these services open three separate terminals in the main goloco directory, activate the virtual environment in each with ```conda activate goloco``` or ```source activate goloco```, and run the following commands: 
 
 #### Terminal 1. Start the Redis Service:
 ```bash
@@ -202,7 +221,7 @@ celery -A celery_worker worker --loglevel=INFO
 python app.py
 ```
 
-### Step 5. Open goloco:
+### Step 7. Open goloco:
 Once the previous step is completed, goloco should now be operational and serviced over port 8080 on your local machine. Note that the port can be changed in the app.py source code if necessary or desired. Open any web browser and navigate to the following address to access this application:
 
 ```bash
@@ -212,7 +231,7 @@ or
 ```bash
 localhost:8080
 ```
-The application can be stopped by interrupting or closing the processes in each of the service terminals and can be restarted by following Step 4.
+The application can be stopped by interrupting or closing the processes in each of the service terminals and can be restarted by following Step 6.
 
 ## References
 
