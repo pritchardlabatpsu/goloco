@@ -164,7 +164,7 @@ python setup.py install
 Next, navigate back to the goloco main directory with the requirements.txt file and run the following commands to install the basic required packages:
 
 ```bash
-pip install -r requirements.txt
+pip install --no-cache-dir -r requirements.txt --use-pep517
 pip install python_dotenv
 ```
 
